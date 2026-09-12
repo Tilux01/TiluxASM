@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tilux Installer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #09090b;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        .container {
+            text-align: center;
+            max-width: 400px;
+        }
+        .icon {
+            font-size: 48px;
+            color: #a855f7;
+            margin-bottom: 20px;
+        }
+        h2 {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+        }
+        p {
+            color: #a1a1aa;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        .terminal {
+            background: rgba(24,24,27,0.8);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: left;
+            font-family: monospace;
+            font-size: 12px;
+            color: #e4e4e7;
+            white-space: pre-wrap;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <i class="fa-solid fa-microchip icon fa-fade"></i>
+        <h2>First Launch Setup</h2>
+        <p>Creating Universal Python Brain for your OS...</p>
+        <div class="terminal" id="status-text">Initializing setup...</div>
+    </div>
+    <script>
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.on('installation-status', (event, text) => {
+            document.getElementById('status-text').innerText = text;
+        });
+    </script>
+</body>
+</html>

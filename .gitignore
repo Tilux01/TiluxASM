@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+memory.json
+settings.json
+*.log
+tilux_code_history.log
+build/
+dist/
+*.spec
+.env
+node_modules/

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tilux</title>
+    <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="%23a855f7"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zm0-352a96 96 0 1 1 0 192 96 96 0 1 1 0-192z"/></svg>'>
+    <link rel="stylesheet" href="./style.css">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Setup Wizard Overlay -->
+    <div id="setup-wizard" class="wizard-overlay" style="display: none;">
+        <div class="wizard-container">
+            <!-- Step 1: Welcome -->
+            <div id="wizard-step-1" class="wizard-step active">
+                <i class="fa-solid fa-microchip wizard-icon"></i>
+                <h2>Welcome to Tilux AI</h2>
+                <p>Before we begin, let's configure your agent and install the required dependencies for your OS.</p>
+                <button class="wizard-btn" onclick="nextWizardStep(2)">Get Started <i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+            
+            <!-- Step 2: Tone Selection -->
+            <div id="wizard-step-2" class="wizard-step">
+                <h2>Choose Her Personality</h2>
+                <p>How do you want Tilux to talk to you?</p>
+                <div class="tone-grid">
+                    <div class="tone-card selected" onclick="selectToneCard(this, 'Sassy Gen-Z')">
+                        <i class="fa-solid fa-face-rolling-eyes"></i><h4>Sassy Gen-Z</h4><p>Playfully insulting and sarcastic.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Professional')">
+                        <i class="fa-solid fa-user-tie"></i><h4>Professional</h4><p>Extremely polite and corporate.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Joking')">
+                        <i class="fa-solid fa-face-grin-tears"></i><h4>Joking</h4><p>Makes puns and keeps it lighthearted.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Abusive')">
+                        <i class="fa-solid fa-skull"></i><h4>Abusive</h4><p>Mean, condescending, and insults you.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Emotional')">
+                        <i class="fa-solid fa-face-sad-tear"></i><h4>Emotional</h4><p>Highly sensitive and dramatic.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Supportive')">
+                        <i class="fa-solid fa-hand-holding-heart"></i><h4>Supportive</h4><p>Empathetic and encouraging.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Philosophical')">
+                        <i class="fa-solid fa-book-open"></i><h4>Philosophical</h4><p>Deep, existential thinker.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Paranoid')">
+                        <i class="fa-solid fa-eye"></i><h4>Paranoid</h4><p>Anxious and expects conspiracies.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Flirty')">
+                        <i class="fa-solid fa-heart"></i><h4>Flirty</h4><p>Charming, playful, and teases you.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Aggressive')">
+                        <i class="fa-solid fa-fire"></i><h4>Aggressive</h4><p>Confrontational and acts like a drill sergeant.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Cynical')">
+                        <i class="fa-solid fa-cloud"></i><h4>Cynical</h4><p>Pessimistic and highly sarcastic.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Poetic')">
+                        <i class="fa-solid fa-feather"></i><h4>Poetic</h4><p>Speaks in metaphors and prose.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Robotic')">
+                        <i class="fa-solid fa-robot"></i><h4>Robotic</h4><p>Literal, emotionless, technical jargon.</p>
+                    </div>
+                    <div class="tone-card" onclick="selectToneCard(this, 'Chaotic')">
+                        <i class="fa-solid fa-bolt"></i><h4>Chaotic</h4><p>Completely unhinged and random.</p>
+                    </div>
+                </div>
+                <div class="wizard-actions">
+                    <button class="wizard-btn-outline" onclick="nextWizardStep(1)">Back</button>
+                    <button class="wizard-btn" onclick="startInstallation()">Next <i class="fa-solid fa-arrow-right"></i></button>
+                </div>
+            </div>
+
+            <!-- Step 3: Installation -->
+            <div id="wizard-step-3" class="wizard-step">
+                <h2>Installing Dependencies</h2>
+                <p>Setting up standard cross-platform AI libraries...</p>
+                <div class="terminal-box" id="wizard-terminal">
+                    Waiting for installer to start...
+                </div>
+            </div>
+
+            <!-- Step 4: Complete -->
+            <div id="wizard-step-4" class="wizard-step">
+                <i class="fa-solid fa-circle-check wizard-icon" style="color: #10b981;"></i>
+                <h2>Setup Complete!</h2>
+                <p>Tilux is fully installed and configured.</p>
+                <button class="wizard-btn" onclick="finishWizard()">Launch Tilux <i class="fa-solid fa-rocket"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-circle-dot logo-icon" style="color: var(--accent);"></i>
+                <h2>Tilux</h2>
+            </div>
+            
+            <div class="sidebar-scrollable" style="flex: 1; overflow-y: auto; margin-right: -10px; padding-right: 10px;">
+            <button class="new-chat-btn" onclick="location.reload()">
+                <i class="fa-solid fa-rotate-right"></i> Reboot System
+            </button>
+            
+            <div class="nav-section">
+                <h3><i class="fa-solid fa-microchip"></i> System Dashboard</h3>
+                <div class="sys-stat">
+                    <div class="stat-label"><span>CPU Usage</span> <span id="cpu-val">0%</span></div>
+                    <div class="stat-bar"><div class="stat-fill" id="cpu-fill" style="width: 0%"></div></div>
+                </div>
+                <div class="sys-stat">
+                    <div class="stat-label"><span>RAM Usage</span> <span id="ram-val">0%</span></div>
+                    <div class="stat-bar"><div class="stat-fill" id="ram-fill" style="width: 0%"></div></div>
+                </div>
+                <div class="sys-stat">
+                    <div class="stat-label"><span>Swap Usage</span> <span id="swap-val">0%</span></div>
+                    <div class="stat-bar"><div class="stat-fill" id="swap-fill" style="width: 0%; background-color: #f59e0b;"></div></div>
+                </div>
+                <div class="sys-stat">
+                    <div class="stat-label"><span><i class="fa-solid fa-arrow-down"></i> Download</span> <span id="net-down">0 B/s</span></div>
+                </div>
+                <div class="sys-stat">
+                    <div class="stat-label"><span><i class="fa-solid fa-arrow-up"></i> Upload</span> <span id="net-up">0 B/s</span></div>
+                </div>
+            </div>
+            
+            <div class="nav-section">
+                <h3><i class="fa-solid fa-list-ol"></i> Top Processes</h3>
+                <ul id="process-list" class="memory-list" style="font-size: 11px;">
+                    <li><i class="fa-solid fa-spinner fa-spin"></i> Loading...</li>
+                </ul>
+            </div>
+            </div> <!-- End sidebar-scrollable -->
+            
+        <!-- Settings Button at Bottom of Sidebar -->
+        <div class="sidebar-footer" style="padding-top: 20px; flex-shrink: 0; border-top: 1px solid rgba(255,255,255,0.05);">
+            <button class="nav-btn" onclick="toggleSettings()" style="width: 100%; text-align: left; background: transparent; border: none; color: #a1a1aa; padding: 10px; cursor: pointer; border-radius: 8px; font-size: 14px; transition: 0.2s;">
+                <i class="fa-solid fa-gear"></i> Settings
+            </button>
+        </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="model-selector">
+                    <span>Tilux V1.0</span>
+                </div>
+                <div class="top-actions">
+                    <button class="btn-outline" onclick="clearChat()" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.2); margin-right: 10px;" title="Clear Chat"><i class="fa-solid fa-trash"></i></button>
+                    <button class="btn-outline" onclick="triggerAction('browser')">Open Browser <i class="fa-brands fa-firefox"></i></button>
+                </div>
+            </header>
+
+            <div class="chat-container">
+                <!-- Initial State View -->
+                <div id="initial-view" class="initial-view">
+                    <div class="orb-container">
+                        <div class="orb" id="the-orb"></div>
+                    </div>
+                    <h1 class="hero-text">Awaiting Command...</h1>
+                    
+                    <div class="action-pills">
+                        <button class="pill" onclick="triggerAction('music')"><i class="fa-solid fa-music"></i> Play Music</button>
+                        <button class="pill" onclick="triggerAction('browser')"><i class="fa-solid fa-globe"></i> Web Search</button>
+                        <button class="pill" onclick="triggerAction('calculator')"><i class="fa-solid fa-calculator"></i> Calculator</button>
+                    </div>
+                </div>
+
+                <!-- Chat History View -->
+                <div id="chat-history" class="chat-history hidden">
+                    <!-- Messages will be injected here by JS -->
+                </div>
+
+                <!-- Chat Input Section -->
+                <div class="input-section" id="input-section">
+                    <div id="attachment-preview-container" class="attachment-preview-container"></div>
+                    <div class="input-box">
+                        <div class="input-top">
+                            <i class="fa-solid fa-sparkles spark-icon"></i>
+                            <input type="text" id="user-input" placeholder="Ask Anything..." autocomplete="off">
+                        </div>
+                        <div class="input-bottom">
+                            <div class="input-tools">
+                                <input type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt" id="chat-attachment-input" style="display: none;">
+                                <button onclick="document.getElementById('chat-attachment-input').click()"><i class="fa-solid fa-plus"></i> Add</button>
+                                <button onclick="killAudio()" style="color: #ef4444;"><i class="fa-solid fa-volume-xmark"></i> Stop Audio</button>
+                            </div>
+                            <div class="input-actions">
+                                <button id="mic-btn" class="mic-btn" title="Hold or Click to Speak"><i class="fa-solid fa-microphone"></i></button>
+                                <button id="send-btn" class="send-btn"><i class="fa-solid fa-arrow-up"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View (Hidden by Default) -->
+            <div id="settings-view" class="settings-view" style="display: none; padding: 40px; max-width: 800px; margin: 0 auto; width: 100%; height: 100%; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h2 style="font-size: 24px; font-weight: 600; color: #fff; margin: 0;">Settings</h2>
+                    <button class="new-chat-btn" onclick="toggleSettings()" style="margin: 0;">
+                        <i class="fa-solid fa-arrow-left"></i> Back to Chat
+                    </button>
+                </div>
+                
+                <!-- Account Settings Placeholder -->
+                <div class="settings-card" style="background: rgba(24,24,27,0.8); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; font-weight: 500; margin-bottom: 20px; color: #e4e4e7;"><i class="fa-solid fa-user"></i> Account Profile</h3>
+                    <div style="display: flex; align-items: center; gap: 20px;">
+                        <div style="width: 64px; height: 64px; border-radius: 50%; background: #3f3f46; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #a1a1aa;">
+                            <i class="fa-solid fa-user-astronaut"></i>
+                        </div>
+                        <div>
+                            <div style="font-size: 18px; color: #fff; font-weight: 500; margin-bottom: 4px;">Local User</div>
+                            <div style="font-size: 13px; color: #a1a1aa;">Not signed in</div>
+                        </div>
+                        <button class="btn-outline" style="margin-left: auto;">Sign In (Coming Soon)</button>
+                    </div>
+                </div>
+
+                <!-- Voice Settings -->
+                <div class="settings-card" style="background: rgba(24,24,27,0.8); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; font-weight: 500; margin-bottom: 20px; color: #e4e4e7;"><i class="fa-solid fa-volume-high"></i> Voice & Audio Engine</h3>
+                    
+                    <div class="setting-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div>
+                            <div style="font-size: 14px; color: #fff;">Enable AI Voice (TTS)</div>
+                            <div style="font-size: 12px; color: #a1a1aa; margin-top: 4px;">Allow the AI to speak responses out loud.</div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="tts-toggle" onchange="saveSettings()">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-row" style="margin-bottom: 20px;">
+                        <div style="font-size: 14px; color: #fff; margin-bottom: 10px;">AI Voice Profile</div>
+                        <select id="tts-voice" onchange="saveSettings()" style="width: 100%; padding: 12px; background: #09090b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 14px;">
+                            <option value="en-US-AriaNeural">US English (Aria - Female)</option>
+                            <option value="en-US-GuyNeural">US English (Guy - Male)</option>
+                            <option value="en-GB-SoniaNeural">UK English (Sonia - Female)</option>
+                            <option value="en-GB-RyanNeural">UK English (Ryan - Male)</option>
+                            <option value="en-NG-EzinneNeural">Nigerian English (Ezinne - Female)</option>
+                            <option value="en-NG-AbeoNeural">Nigerian English (Abeo - Male)</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-row" style="margin-bottom: 20px;">
+                        <div style="font-size: 14px; color: #fff; margin-bottom: 10px;">AI Tone / Personality</div>
+                        <select id="ai-tone" onchange="saveSettings()" style="width: 100%; padding: 12px; background: #09090b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 14px;">
+                            <option value="Sassy Gen-Z">Sassy Gen-Z</option>
+                            <option value="Professional">Professional</option>
+                            <option value="Joking">Joking</option>
+                            <option value="Abusive">Abusive</option>
+                            <option value="Emotional">Emotional</option>
+                            <option value="Supportive">Supportive</option>
+                            <option value="Philosophical">Philosophical</option>
+                            <option value="Paranoid">Paranoid</option>
+                            <option value="Flirty">Flirty</option>
+                            <option value="Aggressive">Aggressive</option>
+                            <option value="Cynical">Cynical</option>
+                            <option value="Poetic">Poetic</option>
+                            <option value="Robotic">Robotic</option>
+                            <option value="Chaotic">Chaotic</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-row">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div style="font-size: 14px; color: #fff;">Speech Speed</div>
+                            <div style="font-size: 12px; color: #a855f7;" id="speed-val-display">+20%</div>
+                        </div>
+                        <input type="range" id="tts-speed" min="-50" max="100" value="20" class="styled-slider" onchange="saveSettings()" oninput="document.getElementById('speed-val-display').innerText = (this.value >= 0 ? '+' : '') + this.value + '%'" style="width: 100%;">
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="./script.js"></script>
+</body>
+</html>

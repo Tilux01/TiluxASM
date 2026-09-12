@@ -1,0 +1,52 @@
+{
+  "name": "tilux-client",
+  "version": "1.0.0",
+  "description": "Tilux AI Assistant",
+  "author": "Tilux <tilux@example.com>",
+  "homepage": "https://example.com/tilux",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:linux": "electron-builder --linux",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.tilux.assistant",
+    "productName": "Tilux Assistant",
+    "directories": {
+      "buildResources": "build"
+    },
+    "extraResources": [
+      {
+        "from": "../",
+        "to": "backend",
+        "filter": [
+          "*.py",
+          "requirements.txt",
+          "templates/**/*",
+          "static/**/*"
+        ]
+      }
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "build/icon.png"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.png"
+    }
+  },
+  "keywords": [],
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
+  }
+}
