@@ -26,7 +26,16 @@ import json
 
 def speak(text: str):
     """Converts text to speech and plays it using Edge TTS (Dynamic Voice/Speed)."""
-    clean_text = text.replace("*", "").replace("`", "")
+    import re
+    clean_text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    clean_text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean_text)
+    clean_text = re.sub(r'```[\s\S]*?```', '', clean_text)
+    clean_text = re.sub(r'`[^`]+`', '', clean_text)
+    clean_text = re.sub(r'https?://[^\s]+', '', clean_text)
+    clean_text = re.sub(r'/[a-zA-Z0-9_./-]+', '', clean_text)
+    clean_text = re.sub(r'[*_~`#>\-]', '', clean_text).strip()
+    if not clean_text:
+        return
     
     # Load TTS Settings
     settings = {"tts_enabled": True, "tts_voice": "en-US-AriaNeural", "tts_speed": "+20%"}
@@ -44,21 +53,23 @@ def speak(text: str):
     try:
         import platform
         edge_tts_bin = "./venv/bin/edge-tts" if platform.system() != "Windows" else ".\\venv\\Scripts\\edge-tts.exe"
-        subprocess.run(
-            [edge_tts_bin, "--voice", settings.get("tts_voice", "en-US-AriaNeural"), "--rate", settings.get("tts_speed", "+20%"), "--text", clean_text, "--write-media", "response.mp3"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True
+        tts_voice = settings.get("tts_voice", "en-US-AriaNeural")
+        tts_speed = settings.get("tts_speed", "+20%")
+        
+        p1 = subprocess.Popen(
+            [edge_tts_bin, "--voice", tts_voice, "--rate", tts_speed, "--text", clean_text, "--write-media", "-"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
         )
-        subprocess.run(
-            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "response.mp3"],
+        p2 = subprocess.Popen(
+            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-i", "-"],
+            stdin=p1.stdout,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        if os.path.exists("response.mp3"):
-            os.remove("response.mp3")
+        p2.wait()
     except Exception:
-        pass # Silently fail if TTS fails to keep terminal clean
+        pass
 
 def listen() -> str:
     """Listens to the microphone and returns the transcribed text silently."""

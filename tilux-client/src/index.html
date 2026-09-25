@@ -10,8 +10,106 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- FontAwesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
+    <!-- Strict Desktop Authentication Gate Overlay (Hidden by default to prevent flash on app launch) -->
+    <!-- Strict Desktop Authentication Gate Overlay (Matching User's Reference Screenshot) -->
+    <div id="desktop-auth-overlay" class="auth-gate-overlay" style="display: none;">
+      <div class="desktop-auth-modal">
+        <!-- Left Side: Vibrant Purple Banner with Step Pill Stack -->
+        <div class="auth-left-banner">
+          <div class="banner-content">
+            <div class="banner-logo">
+              <i class="fa-solid fa-circle-dot"></i> <span>Tilux</span>
+            </div>
+            <h1 class="banner-title">Get Started with Us</h1>
+            <p class="banner-subtitle">Complete these easy steps to register your desktop AI account.</p>
+            
+            <div class="banner-steps-stack">
+              <div class="step-pill active" id="step-pill-1">
+                <span class="step-num">1</span>
+                <span class="step-label" id="step-label-1">Sign up your account</span>
+              </div>
+              <div class="step-pill" id="step-pill-2">
+                <span class="step-num">2</span>
+                <span class="step-label">Set up your workspace</span>
+              </div>
+              <div class="step-pill" id="step-pill-3">
+                <span class="step-num">3</span>
+                <span class="step-label">Set up your profile</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side: Dark Form Area -->
+        <div class="auth-right-form">
+          <div class="form-header">
+            <h2 id="auth-card-title" class="form-title">Sign Up Account</h2>
+            <p id="auth-card-sub" class="form-subtitle">Enter your personal data to create your account.</p>
+          </div>
+
+          <div class="social-login-row">
+            <button type="button" class="social-btn" onclick="showToast('Google login ready', 'info')">
+              <i class="fa-brands fa-google" style="color: #ea4335;"></i> Google
+            </button>
+            <button type="button" class="social-btn" onclick="showToast('Github login ready', 'info')">
+              <i class="fa-brands fa-github"></i> Github
+            </button>
+          </div>
+
+          <div class="form-divider">
+            <span>Or</span>
+          </div>
+
+          <div id="auth-error-msg" class="auth-alert" style="display: none;">
+            <i class="fa-solid fa-circle-exclamation"></i>
+            <span id="auth-error-text">Invalid credentials.</span>
+          </div>
+
+          <div class="form-inputs-stack">
+            <div class="input-row-dual" id="row-dual-name">
+              <div class="form-field">
+                <label class="field-label">First Name</label>
+                <input id="pc-auth-fname" class="field-input" type="text" placeholder="eg. John" autocomplete="off">
+              </div>
+              <div class="form-field">
+                <label class="field-label">Last Name</label>
+                <input id="pc-auth-lname" class="field-input" type="text" placeholder="eg. Francisco" autocomplete="off">
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label class="field-label">Email</label>
+              <input id="pc-auth-email" class="field-input" type="email" placeholder="eg. johnfrans@gmail.com" autocomplete="off">
+            </div>
+
+            <div class="form-field">
+              <label class="field-label">Password</label>
+              <div class="password-wrapper">
+                <input id="pc-auth-password" class="field-input" type="password" placeholder="Enter your password" autocomplete="off">
+                <button type="button" class="pwd-eye-btn" onclick="togglePasswordVisibility('pc-auth-password', this)">
+                  <i class="fa-solid fa-eye-slash"></i>
+                </button>
+              </div>
+              <span class="field-hint">Must be at least 8 characters.</span>
+            </div>
+          </div>
+
+          <button id="pc-btn-submit" class="btn-primary-submit" onclick="submitAuthForm()">
+            <span id="auth-btn-text">Sign Up</span>
+          </button>
+
+          <p class="form-footer-link" id="auth-footer-prompt">
+            Already have an account? <a href="#" id="link-toggle-auth" onclick="switchAuthTab('login'); return false;">Log in</a>
+          </p>
+        </div>
+      </div>
+    </div>
     <!-- Setup Wizard Overlay -->
     <div id="setup-wizard" class="wizard-overlay" style="display: none;">
         <div class="wizard-container">
@@ -104,39 +202,65 @@
                 <h2>Tilux</h2>
             </div>
             
+            <!-- Sidebar Tab Toggle: System Resources (Default) vs History -->
+            <div class="sidebar-tab-toggle">
+                <button id="tab-btn-system" class="sidebar-tab active" onclick="switchSidebarTab('system')">
+                    <i class="fa-solid fa-microchip"></i> System
+                </button>
+                <button id="tab-btn-history" class="sidebar-tab" onclick="switchSidebarTab('history')">
+                    <i class="fa-solid fa-clock-rotate-left"></i> History
+                </button>
+            </div>
+            
             <div class="sidebar-scrollable" style="flex: 1; overflow-y: auto; margin-right: -10px; padding-right: 10px;">
-            <button class="new-chat-btn" onclick="location.reload()">
-                <i class="fa-solid fa-rotate-right"></i> Reboot System
-            </button>
-            
-            <div class="nav-section">
-                <h3><i class="fa-solid fa-microchip"></i> System Dashboard</h3>
-                <div class="sys-stat">
-                    <div class="stat-label"><span>CPU Usage</span> <span id="cpu-val">0%</span></div>
-                    <div class="stat-bar"><div class="stat-fill" id="cpu-fill" style="width: 0%"></div></div>
+                <!-- Tab 1: System Resources Panel -->
+                <div id="sidebar-system-panel">
+                    <button class="new-chat-btn" onclick="location.reload()">
+                        <i class="fa-solid fa-rotate-right"></i> Reboot System
+                    </button>
+                    
+                    <div class="nav-section">
+                        <h3><i class="fa-solid fa-microchip"></i> System Dashboard</h3>
+                        <div class="sys-stat">
+                            <div class="stat-label"><span>CPU Usage</span> <span id="cpu-val">0%</span></div>
+                            <div class="stat-bar"><div class="stat-fill" id="cpu-fill" style="width: 0%"></div></div>
+                        </div>
+                        <div class="sys-stat">
+                            <div class="stat-label"><span>RAM Usage</span> <span id="ram-val">0%</span></div>
+                            <div class="stat-bar"><div class="stat-fill" id="ram-fill" style="width: 0%"></div></div>
+                        </div>
+                        <div class="sys-stat">
+                            <div class="stat-label"><span>Swap Usage</span> <span id="swap-val">0%</span></div>
+                            <div class="stat-bar"><div class="stat-fill" id="swap-fill" style="width: 0%; background-color: #f59e0b;"></div></div>
+                        </div>
+                        <div class="sys-stat">
+                            <div class="stat-label"><span><i class="fa-solid fa-arrow-down"></i> Download</span> <span id="net-down">0 B/s</span></div>
+                        </div>
+                        <div class="sys-stat">
+                            <div class="stat-label"><span><i class="fa-solid fa-arrow-up"></i> Upload</span> <span id="net-up">0 B/s</span></div>
+                        </div>
+                    </div>
+                    
+                    <div class="nav-section">
+                        <h3><i class="fa-solid fa-list-ol"></i> Top Processes</h3>
+                        <ul id="process-list" class="memory-list" style="font-size: 11px;">
+                            <li><i class="fa-solid fa-spinner fa-spin"></i> Loading...</li>
+                        </ul>
+                    </div>
                 </div>
-                <div class="sys-stat">
-                    <div class="stat-label"><span>RAM Usage</span> <span id="ram-val">0%</span></div>
-                    <div class="stat-bar"><div class="stat-fill" id="ram-fill" style="width: 0%"></div></div>
+
+                <!-- Tab 2: Chat History Panel -->
+                <div id="sidebar-history-panel" style="display: none;">
+                    <button class="new-chat-btn" onclick="startNewChat()">
+                        <i class="fa-solid fa-plus"></i> New Chat
+                    </button>
+                    <div class="nav-section">
+                        <h3><i class="fa-solid fa-clock-rotate-left"></i> Past Conversations</h3>
+                        <div id="desktop-history-list" class="history-list-container">
+                            <div class="history-empty"><i class="fa-solid fa-spinner fa-spin"></i> Loading history...</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="sys-stat">
-                    <div class="stat-label"><span>Swap Usage</span> <span id="swap-val">0%</span></div>
-                    <div class="stat-bar"><div class="stat-fill" id="swap-fill" style="width: 0%; background-color: #f59e0b;"></div></div>
-                </div>
-                <div class="sys-stat">
-                    <div class="stat-label"><span><i class="fa-solid fa-arrow-down"></i> Download</span> <span id="net-down">0 B/s</span></div>
-                </div>
-                <div class="sys-stat">
-                    <div class="stat-label"><span><i class="fa-solid fa-arrow-up"></i> Upload</span> <span id="net-up">0 B/s</span></div>
-                </div>
-            </div>
-            
-            <div class="nav-section">
-                <h3><i class="fa-solid fa-list-ol"></i> Top Processes</h3>
-                <ul id="process-list" class="memory-list" style="font-size: 11px;">
-                    <li><i class="fa-solid fa-spinner fa-spin"></i> Loading...</li>
-                </ul>
-            </div>
             </div> <!-- End sidebar-scrollable -->
             
         <!-- Settings Button at Bottom of Sidebar -->
@@ -179,6 +303,11 @@
                     <!-- Messages will be injected here by JS -->
                 </div>
 
+                <!-- Scroll to Bottom Button -->
+                <button type="button" id="scrollToBottomBtn" class="scroll-bottom-btn hidden" onclick="scrollToBottom(event)" title="Scroll to Bottom">
+                    <i class="fa-solid fa-arrow-down"></i>
+                </button>
+
                 <!-- Chat Input Section -->
                 <div class="input-section" id="input-section">
                     <div id="attachment-preview-container" class="attachment-preview-container"></div>
@@ -218,18 +347,44 @@
                     </button>
                 </div>
                 
-                <!-- Account Settings Placeholder -->
+                <!-- Mobile Remote Pairing Card -->
                 <div class="settings-card" style="background: rgba(24,24,27,0.8); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
-                    <h3 style="font-size: 16px; font-weight: 500; margin-bottom: 20px; color: #e4e4e7;"><i class="fa-solid fa-user"></i> Account Profile</h3>
-                    <div style="display: flex; align-items: center; gap: 20px;">
-                        <div style="width: 64px; height: 64px; border-radius: 50%; background: #3f3f46; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #a1a1aa;">
-                            <i class="fa-solid fa-user-astronaut"></i>
+                    <h3 style="font-size: 16px; font-weight: 500; margin-bottom: 12px; color: #e4e4e7;"><i class="fa-solid fa-mobile-screen-button"></i> Mobile Remote Pairing</h3>
+                    <p style="font-size: 13px; color: #a1a1aa; margin-bottom: 16px;">Scan this QR code with your <b>Tilux Remote</b> mobile app to pair your phone and control this PC over WebSockets.</p>
+                    <div style="display: flex; gap: 20px; align-items: center;">
+                        <div id="qr-container" style="background: #fff; padding: 8px; border-radius: 8px; width: 140px; height: 140px; display: flex; align-items: center; justify-content: center;">
+                            <img id="qr-img" src="" alt="Pairing QR Code" style="width: 124px; height: 124px; display: none;">
+                            <span id="qr-loading" style="font-size: 12px; color: #333;">Generating...</span>
                         </div>
                         <div>
-                            <div style="font-size: 18px; color: #fff; font-weight: 500; margin-bottom: 4px;">Local User</div>
-                            <div style="font-size: 13px; color: #a1a1aa;">Not signed in</div>
+                            <div style="font-size: 13px; color: #fff; margin-bottom: 4px;"><b>PC Host IP:</b> <span id="remote-host-val">Detecting...</span></div>
+                            <div style="font-size: 12px; color: #a1a1aa; margin-bottom: 12px;"><b>Pair Token:</b> <code id="remote-token-val" style="background: #27272a; padding: 2px 6px; border-radius: 4px; color: #00F2FE;">...</code></div>
+                            <button class="new-chat-btn" onclick="fetchQrPair()" style="margin: 0; font-size: 12px; padding: 6px 12px;"><i class="fa-solid fa-arrows-rotate"></i> Refresh QR Code</button>
                         </div>
-                        <button class="btn-outline" style="margin-left: auto;">Sign In (Coming Soon)</button>
+                    </div>
+                </div>
+
+                <!-- Active Account Profile Card -->
+                <div class="settings-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 16px; padding: 22px; margin-bottom: 24px; backdrop-filter: blur(10px);">
+                    <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 20px; color: #e4e4e7; display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-user-shield" style="color: #00F2FE;"></i> Account Profile & Personal Sync
+                    </h3>
+                    <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+                        <div id="account-avatar-box" style="width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(168, 85, 247, 0.2)); border: 1.5px solid rgba(0, 242, 254, 0.4); display: flex; align-items: center; justify-content: center; font-size: 24px; color: #00F2FE; box-shadow: 0 0 15px rgba(0, 242, 254, 0.15);">
+                            <i id="account-avatar-icon" class="fa-solid fa-user-astronaut"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 200px;">
+                            <div id="account-user-name" style="font-size: 17px; color: #fff; font-weight: 600; margin-bottom: 4px;">Guest User</div>
+                            <div id="account-user-status" style="font-size: 13px; color: #a1a1aa; display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-circle-dot" style="font-size: 10px; color: #ef4444;"></i> Not signed in
+                            </div>
+                            <div id="account-user-uid" style="font-size: 11px; color: #71717a; margin-top: 4px; font-family: monospace; display: none;"></div>
+                        </div>
+                        <div id="account-action-area" style="margin-left: auto;">
+                            <button id="account-auth-btn" class="btn-outline" onclick="showAuthOverlay()" style="border-color: rgba(0, 242, 254, 0.4); color: #00F2FE; background: rgba(0, 242, 254, 0.08); font-size: 13px; padding: 8px 16px; border-radius: 8px; cursor: pointer;">
+                                <i class="fa-solid fa-right-to-bracket"></i> Sign In / Register
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -286,6 +441,22 @@
                             <div style="font-size: 12px; color: #a855f7;" id="speed-val-display">+20%</div>
                         </div>
                         <input type="range" id="tts-speed" min="-50" max="100" value="20" class="styled-slider" onchange="saveSettings()" oninput="document.getElementById('speed-val-display').innerText = (this.value >= 0 ? '+' : '') + this.value + '%'" style="width: 100%;">
+                    </div>
+                </div>
+
+                <!-- Sudo & Remote Vault Settings -->
+                <div class="settings-card" style="background: rgba(24,24,27,0.8); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; font-weight: 500; margin-bottom: 8px; color: #e4e4e7;"><i class="fa-solid fa-shield-halved" style="color: var(--accent); margin-right: 6px;"></i> PC Sudo & Remote Vault</h3>
+                    <div style="font-size: 12px; color: #a1a1aa; margin-bottom: 16px;">Allows Tilux to execute privileged (sudo/root) commands remotely without freezing or desktop popups.</div>
+                    
+                    <div class="setting-row">
+                        <div style="font-size: 14px; color: #fff; margin-bottom: 8px;">PC Password (sudo)</div>
+                        <div style="position: relative;">
+                            <input type="password" id="sudo-pass-input" placeholder="Enter PC sudo password" onchange="saveSettings()" style="width: 100%; padding: 12px; padding-right: 40px; background: #09090b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 14px;">
+                            <button type="button" onclick="togglePassVisibility('sudo-pass-input', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #a1a1aa; cursor: pointer; font-size: 14px;">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

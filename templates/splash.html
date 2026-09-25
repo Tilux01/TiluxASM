@@ -88,7 +88,7 @@
 
     <div class="splash-centered-wrapper">
         <!-- Centered Logo (Reduced to 140px, clean, no glow) -->
-        <img src="./icon.png" class="app-logo-img" alt="Tilux Logo">
+        <img src="/static/icon.png" class="app-logo-img" alt="Tilux Logo">
 
         <!-- Centered Loader with Dynamic Status Words on top -->
         <div class="loader-center">
@@ -152,7 +152,6 @@
                 progress += Math.floor(Math.random() * 8) + 5;
                 if (progress > 95) progress = 95;
                 
-                // Change words dynamically as progress advances
                 if (progress > 15 && progress <= 35) updateStatusWord("Setting up your environment...");
                 else if (progress > 35 && progress <= 60) updateStatusWord("Initializing AI core...");
                 else if (progress > 60 && progress <= 80) updateStatusWord("Loading workspace modules...");

@@ -1,0 +1,14 @@
+{
+    "created_at": 1790244788625,
+    "email": "israeladekola8@gmail.com",
+    "last_login": 1790354997403,
+    "last_logout": 1790344726983,
+    "settings": {
+        "ai_tone": "Robotic",
+        "sudo_password": "",
+        "tts_enabled": true,
+        "tts_speed": "+20%",
+        "tts_voice": "en-US-AriaNeural"
+    },
+    "uid": "dKkXwqlWLgeZ7Zyj7tUCzKoOK102"
+}

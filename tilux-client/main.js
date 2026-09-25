@@ -23,16 +23,19 @@ function copyDirectory(src, dest) {
 }
 
 async function setupAndRunBackend() {
+    let script, pyExe, backendCwd;
+
     if (app.isPackaged) {
         const userDataPath = app.getPath('userData');
-        const backendPath = path.join(userDataPath, 'backend');
-        const venvPath = path.join(backendPath, 'venv');
+        backendCwd = path.join(userDataPath, 'backend');
+        const venvPath = path.join(backendCwd, 'venv');
         
-        let pyExe = process.platform === 'win32' ? 
+        pyExe = process.platform === 'win32' ? 
             path.join(venvPath, 'Scripts', 'python.exe') : 
             path.join(venvPath, 'bin', 'python3');
             
-        const setupCompleteFile = path.join(backendPath, '.setup_complete');
+        script = path.join(backendCwd, 'server.py');
+        const setupCompleteFile = path.join(backendCwd, '.setup_complete');
         
         // Check if setup is already complete by looking for the .setup_complete flag
         if (!fs.existsSync(setupCompleteFile) || !fs.existsSync(pyExe)) {
@@ -54,7 +57,7 @@ async function setupAndRunBackend() {
             // Copy files from resources/backend to userData/backend
             const resourcesBackend = path.join(process.resourcesPath, 'backend');
             if (fs.existsSync(resourcesBackend)) {
-                copyDirectory(resourcesBackend, backendPath);
+                copyDirectory(resourcesBackend, backendCwd);
             }
             
             // Create venv and pip install
@@ -62,7 +65,7 @@ async function setupAndRunBackend() {
                 const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
                 if (mainWindow) mainWindow.webContents.send('installation-status', 'Creating virtual environment (this may take a minute)...');
                 
-                exec(`${pythonCmd} -m venv venv`, { cwd: backendPath }, (err, stdout, stderr) => {
+                exec(`${pythonCmd} -m venv venv`, { cwd: backendCwd }, (err, stdout, stderr) => {
                     if (err) {
                         console.error(err);
                         const errMsg = (stderr || err.message).toLowerCase();
@@ -78,7 +81,7 @@ async function setupAndRunBackend() {
                     const pipCmd = process.platform === 'win32' ? 
                         path.join('venv', 'Scripts', 'pip.exe') : path.join('.', 'venv', 'bin', 'pip');
                         
-                    exec(`${pipCmd} install -r requirements.txt`, { cwd: backendPath }, (err, stdout, stderr) => {
+                    exec(`${pipCmd} install -r requirements.txt`, { cwd: backendCwd }, (err, stdout, stderr) => {
                         if (err) {
                             console.error(err);
                             if (mainWindow) mainWindow.webContents.send('installation-status', 'Error installing dependencies: ' + err.message);
@@ -87,7 +90,7 @@ async function setupAndRunBackend() {
                         
                         // Try to install PyAudio optionally (often fails on Linux without portaudio19-dev)
                         if (mainWindow) mainWindow.webContents.send('installation-status', 'Installing optional audio drivers...');
-                        exec(`${pipCmd} install PyAudio==0.2.14`, { cwd: backendPath }, (paErr) => {
+                        exec(`${pipCmd} install PyAudio==0.2.14`, { cwd: backendCwd }, (paErr) => {
                             if (paErr) {
                                 console.warn('PyAudio optional install failed, voice input may not work:', paErr.message);
                             }
@@ -102,21 +105,32 @@ async function setupAndRunBackend() {
             if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup complete! Booting AI...');
             await new Promise(r => setTimeout(r, 1000));
         }
-
-        // Run the backend
-        const script = path.join(backendPath, 'server.py');
-        pyProc = spawn(pyExe, [script], { cwd: backendPath });
-        
     } else {
         // Dev mode
-        let script = path.join(__dirname, '..', 'server.py');
-        const pyExe = process.platform === 'win32' ? 
-            path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe') : 
-            path.join(__dirname, '..', 'venv', 'bin', 'python3');
-        pyProc = spawn(pyExe, [script], { cwd: path.join(__dirname, '..') });
+        backendCwd = path.join(__dirname, '..');
+        script = path.join(backendCwd, 'server.py');
+        pyExe = process.platform === 'win32' ? 
+            path.join(backendCwd, 'venv', 'Scripts', 'python.exe') : 
+            path.join(backendCwd, 'venv', 'bin', 'python3');
     }
 
-    if (pyProc != null) {
+    const http = require('http');
+    const checkBackendRunning = () => {
+        return new Promise((resolve) => {
+            const req = http.get('http://localhost:8932/api/qr_pair', (res) => {
+                resolve(true);
+            });
+            req.on('error', () => resolve(false));
+            req.setTimeout(800, () => {
+                req.destroy();
+                resolve(false);
+            });
+        });
+    };
+
+    const isRunning = await checkBackendRunning();
+    if (!isRunning) {
+        pyProc = spawn(pyExe, [script], { cwd: backendCwd });
         console.log('Python backend spawned successfully.');
         pyProc.stdout.on('data', (data) => {
             console.log(`Python: ${data.toString()}`);
@@ -124,14 +138,16 @@ async function setupAndRunBackend() {
         pyProc.stderr.on('data', (data) => {
             console.error(`Python Error: ${data.toString()}`);
         });
-        
-        // Wait 3 seconds for flask to boot then load the real UI
-        setTimeout(() => {
-            if (mainWindow) {
-                mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
-            }
-        }, 3000);
+    } else {
+        console.log('Python backend is already running on port 8932. Reusing active process.');
     }
+
+    // Clean & snappy splash transition (1.4 seconds)
+    setTimeout(() => {
+        if (mainWindow) {
+            mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+        }
+    }, 1400);
 }
 
 function exitPythonProcess() {

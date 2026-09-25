@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import threading
 import logging
@@ -16,7 +16,6 @@ app = Flask(__name__)
 CORS(app) # Allow cross-origin requests from the Electron app
 
 brain = Brain()
-from history_manager import history_manager
 
 import json
 import os
@@ -51,10 +50,6 @@ def save_settings(data):
 def home():
     return render_template("index.html")
 
-@app.route("/splash")
-def splash():
-    return render_template("splash.html")
-
 @app.route("/api/status", methods=["GET"])
 def get_status():
     return jsonify({
@@ -71,48 +66,7 @@ def manage_settings():
         save_settings(new_settings)
         return jsonify({"status": "success"})
 
-@app.route("/api/clear_user_session", methods=["POST"])
-def clear_user_session():
-    try:
-        if os.path.exists("user_personal.json"):
-            os.remove("user_personal.json")
-        save_settings(DEFAULT_SETTINGS)
-        return jsonify({"status": "success", "message": "User session erased"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route("/api/sync_user_personal", methods=["POST"])
-def sync_user_personal():
-    try:
-        data = request.json or {}
-        with open("user_personal.json", "w") as f:
-            json.dump(data, f, indent=4)
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route("/api/file", methods=["GET"])
-def serve_file():
-    file_path = request.args.get("path", "").strip()
-    if not file_path:
-        return jsonify({"error": "No file path provided"}), 400
-    
-    if file_path.startswith("file://"):
-        file_path = file_path[7:]
-        
-    if not os.path.isabs(file_path):
-        file_path = os.path.abspath(file_path)
-        
-    if os.path.exists(file_path) and os.path.isfile(file_path):
-        as_attachment = request.args.get("download", "0") == "1"
-        return send_file(file_path, as_attachment=as_attachment)
-    else:
-        return jsonify({"error": f"File not found: {file_path}"}), 404
-
-
-
 from flask import Response
-
 
 @app.route("/api/install", methods=["GET"])
 def install_system():
@@ -140,68 +94,19 @@ def install_system():
 @app.route("/api/stop", methods=["POST"])
 def stop_generation():
     brain.abort_flag = True
-    brain.is_processing = False
-    brain.current_status = "Idle"
-    brain.current_events = []
-    subprocess.run("killall ffplay 2>/dev/null || true", shell=True)
     return jsonify({"status": "stopped"})
-
-
-
-@app.route("/api/history", methods=["GET"])
-def get_history():
-    return jsonify(history_manager.list_sessions())
-
-@app.route("/api/history/<session_id>", methods=["GET"])
-def get_history_session(session_id):
-    sess = history_manager.get_session(session_id)
-    if not sess:
-        return jsonify({"error": "Session not found"}), 404
-    history_manager.current_session_id = session_id
-    brain.load_session_history(sess.get("messages", []))
-    return jsonify(sess)
-
-@app.route("/api/history/new", methods=["POST"])
-def new_history_session():
-    new_id = history_manager.start_new_session()
-    brain.clear_history()
-    return jsonify({"status": "success", "session_id": new_id})
-
-@app.route("/api/history/<session_id>", methods=["DELETE"])
-def delete_history_session(session_id):
-    history_manager.delete_session(session_id)
-    brain.clear_history()
-    return jsonify({"status": "success"})
-
-
-def sync_brain_session(session_id):
-    if not session_id:
-        session_id = history_manager.start_new_session()
-        brain.clear_history()
-    else:
-        history_manager.current_session_id = session_id
-        sess = history_manager.get_session(session_id)
-        if sess:
-            brain.load_session_history(sess.get("messages", []))
-        else:
-            brain.clear_history()
-    return session_id
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
     if request.is_json:
         user_text = request.json.get("text", "").strip()
-        session_id = request.json.get("session_id")
         attachments = []
     else:
         user_text = request.form.get("text", "").strip()
-        session_id = request.form.get("session_id")
         attachments = request.files.getlist("attachments")
         
     if not user_text and not attachments:
         return jsonify({"error": "No input provided"}), 400
-
-    session_id = sync_brain_session(session_id)
         
     import os, uuid
     from werkzeug.utils import secure_filename
@@ -216,19 +121,12 @@ def chat():
             f.save(filepath)
             saved_files.append(filepath)
             
-    sid = history_manager.add_message(session_id, "User", user_text)
-
-    try:
-        reply_data = brain.process_input(user_text, attachments=saved_files)
-    except Exception as e:
-        reply_data = {"reply": "Task failed: " + str(e), "events": []}
-        
+    reply_data = brain.process_input(user_text, attachments=saved_files)
     reply_text = reply_data.get("reply", "").replace("—", "-")
-    history_manager.add_message(sid, "AI", reply_text, events=reply_data.get("events", []))
-    reply_data["session_id"] = sid
+    steps = reply_data.get("steps", [])
+    
     threading.Thread(target=speak, args=(reply_text,), daemon=True).start()
-    return jsonify(reply_data)
-
+    return jsonify({"reply": reply_text, "steps": steps, "events": getattr(brain, "current_events", [])})
 
 @app.route("/api/voice", methods=["POST"])
 def voice():
@@ -316,42 +214,9 @@ import base64
 from io import BytesIO
 from flask_socketio import SocketIO, emit
 
-socketio = SocketIO(
-    app,
-    cors_allowed_origins="*",
-    async_mode="threading",
-    ping_timeout=60,
-    ping_interval=25,
-    max_http_buffer_size=10000000
-)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-
-PAIR_TOKEN_FILE = "pair_token.txt"
-
-def get_or_create_pair_token():
-    env_token = os.getenv("REMOTE_PAIR_TOKEN")
-    if env_token:
-        return env_token.strip()
-    
-    if os.path.exists(PAIR_TOKEN_FILE):
-        try:
-            with open(PAIR_TOKEN_FILE, "r") as f:
-                token = f.read().strip()
-                if token:
-                    return token
-        except Exception:
-            pass
-            
-    new_token = "tilux_pair_" + os.urandom(6).hex()
-    try:
-        with open(PAIR_TOKEN_FILE, "w") as f:
-            f.write(new_token)
-    except Exception as e:
-        print(f"[Warning] Could not save pair token to file: {e}")
-    return new_token
-
-PAIR_TOKEN = get_or_create_pair_token()
-
+PAIR_TOKEN = os.getenv("REMOTE_PAIR_TOKEN", "pair_tilux_" + os.urandom(4).hex())
 
 def get_local_ip():
     try:
@@ -363,17 +228,11 @@ def get_local_ip():
     except Exception:
         return "127.0.0.1"
 
-def get_public_url():
-    if os.getenv("TILUX_TUNNEL_URL"):
-        return os.getenv("TILUX_TUNNEL_URL")
-    ip = get_local_ip()
-    return f"http://{ip}:8932"
-
-
 @app.route("/api/qr_pair", methods=["GET"])
 def get_qr_pair():
     ip = get_local_ip()
-    public_url = get_public_url()
+    port = 8932
+    public_url = os.getenv("TILUX_TUNNEL_URL", f"http://{ip}:{port}")
     
     payload = {
         "url": public_url,
@@ -413,118 +272,23 @@ def handle_pair(data):
 def handle_remote_prompt(data):
     prompt_text = data.get("text", "")
     token = data.get("token", "")
-    session_id = data.get("session_id")
-    raw_attachments = data.get("attachments", [])
     if token != PAIR_TOKEN:
         emit("error", {"message": "Unauthorized remote device"})
         return
         
-    session_id = sync_brain_session(session_id)
-    brain.abort_flag = False
-    sid = history_manager.add_message(session_id, "User", prompt_text)
-
     def run_task():
         socketio.emit("agent_status", {"status": "Thinking..."})
-        saved_files = []
-        if raw_attachments:
-            import os, uuid, base64
-            temp_dir = "/tmp/tilux_uploads"
-            os.makedirs(temp_dir, exist_ok=True)
-            for item in raw_attachments:
-                try:
-                    name = item.get("name", "file.png")
-                    b64_str = item.get("b64", "")
-                    if "," in b64_str:
-                        b64_str = b64_str.split(",", 1)[1]
-                    file_data = base64.b64decode(b64_str)
-                    filepath = os.path.join(temp_dir, f"{uuid.uuid4().hex}_{name}")
-                    with open(filepath, "wb") as f:
-                        f.write(file_data)
-                    saved_files.append(filepath)
-                except Exception as e:
-                    print(f"[Remote Attachment Save Error] {e}")
-                    
-        try:
-            result = brain.process_input(prompt_text, attachments=saved_files)
-        except Exception as e:
-            result = {"reply": "Remote task failed: " + str(e), "events": []}
-        
-        history_manager.add_message(sid, "AI", result.get("reply", ""), events=result.get("events", []))
-        result["session_id"] = sid
+        result = brain.process_input(prompt_text)
         socketio.emit("agent_reply", result)
-        socketio.emit("history_list", history_manager.list_sessions())
         
     threading.Thread(target=run_task, daemon=True).start()
-
-@socketio.on("stop_task")
-def handle_stop_remote_task():
-    was_processing = brain.is_processing
-    brain.abort_flag = True
-    brain.is_processing = False
-    brain.current_status = "Idle"
-    brain.current_events = []
-    subprocess.run("killall ffplay 2>/dev/null || true", shell=True)
-    if not was_processing:
-        socketio.emit("agent_reply", {"reply": "Task stopped by user.", "events": []})
-
-@socketio.on("get_history")
-def handle_get_history():
-    emit("history_list", history_manager.list_sessions())
-
-@socketio.on("load_session")
-def handle_load_session(data):
-    sess_id = data.get("id") if isinstance(data, dict) else data
-    sess = history_manager.get_session(sess_id)
-    if sess:
-        history_manager.current_session_id = sess_id
-        brain.load_session_history(sess.get("messages", []))
-        emit("session_loaded", sess)
-
-@socketio.on("new_chat")
-def handle_new_chat():
-    new_id = history_manager.start_new_session()
-    brain.clear_history()
-    emit("new_chat_started", {"session_id": new_id})
-    emit("history_list", history_manager.list_sessions())
-
-@socketio.on("delete_session")
-def handle_delete_session(data):
-    sess_id = data.get("id") if isinstance(data, dict) else data
-    history_manager.delete_session(sess_id)
-    emit("history_list", history_manager.list_sessions())
 
 @app.route("/api/kill_audio", methods=["POST"])
 def kill_audio():
     subprocess.run("killall ffplay", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return jsonify({"status": "success"})
 
-def on_brain_event_update(events, status):
-    socketio.emit("agent_events", {"events": events, "status": status})
-
-brain.on_event_update = on_brain_event_update
-
-
-from firebase_sync import firebase_sync
-
-@app.route("/api/firebase_config", methods=["GET"])
-def get_firebase_config():
-    return jsonify({
-        "apiKey": "AIzaSyAQ1ffdL36D8Bw3xA4fOj1boPJlqhPR4p4",
-        "authDomain": "tiluxasm.firebaseapp.com",
-        "databaseURL": "https://tiluxasm-default-rtdb.firebaseio.com",
-        "projectId": "tiluxasm",
-        "storageBucket": "tiluxasm.firebasestorage.app",
-        "messagingSenderId": "686558431377",
-        "appId": "1:686558431377:web:64786056989860a2039730",
-        "measurementId": "G-Q7Y0B754HX"
-    })
-
-from tunnel_manager import tunnel_manager
-
 if __name__ == "__main__":
     psutil.cpu_percent(interval=0.1)
-    tunnel_manager.start_tunnel()
-    firebase_sync.start_heartbeat_loop(get_public_url)
     print("Tilux UI Server & SocketIO Gateway starting at http://0.0.0.0:8932")
-
     socketio.run(app, host="0.0.0.0", port=8932, debug=True, use_reloader=False, allow_unsafe_werkzeug=True)
