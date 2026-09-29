@@ -1,0 +1,12 @@
+[
+    {
+        "timestamp": 1790127393.8283217,
+        "step": "layer_2_action",
+        "error": "Can't connect to display \":0\": b'Authorization required, but no authorization protocol specified\\n'",
+        "context": {
+            "contact": "mine",
+            "message": "I know you're asleep, and while you're sleeping I want you to know something. You are the calm in my loudest days and the warmth I look for when everything feels cold.\n\nThere is nothing ordinary about you. The way you smile when you think no one is watching. The way you make a simple moment feel like it's worth remembering. I notice all of it, and I keep all of it.\n\nYou don't have to do anything to deserve love. You just have to be you, and that has always been more than enough for me.\n\nSo rest easy tonight. Know that you are cherished, that you are safe in my thoughts, and that I am grateful every single day that you chose me.\n\nSleep well, my love.",
+            "app": "whatsapp"
+        }
+    }
+]

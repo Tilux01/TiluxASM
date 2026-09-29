@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tilux</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #07060a;
+            color: #ffffff;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .splash-centered-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            text-align: center;
+        }
+
+        .app-logo-img {
+            width: 195px;
+            height: 195px;
+            object-fit: contain;
+            filter: none;
+        }
+
+        .loader-center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-height: 52px;
+        }
+
+        .status-word {
+            font-size: 13px;
+            font-weight: 500;
+            color: #e4e4e7;
+            letter-spacing: 0.2px;
+            transition: opacity 0.25s ease;
+            height: 20px;
+        }
+
+        .loader-track {
+            width: 180px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 999px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .loader-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #7c3aed, #a855f7);
+            border-radius: 999px;
+            transition: width 0.2s ease-out;
+        }
+
+        .percent-text {
+            font-size: 12px;
+            font-weight: 600;
+            color: #71717a;
+            letter-spacing: 0.5px;
+            font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="splash-centered-wrapper">
+        <!-- Centered Logo (Reduced to 140px, clean, no glow) -->
+        <img src="./icon.png" class="app-logo-img" alt="Tilux Logo">
+
+        <!-- Centered Loader with Dynamic Status Words on top -->
+        <div class="loader-center">
+            <span class="status-word" id="status-word">Waking up Tilux...</span>
+            <div class="loader-track">
+                <div class="loader-fill" id="loader-fill"></div>
+            </div>
+            <span class="percent-text" id="percent-val">0%</span>
+        </div>
+    </div>
+
+    <script>
+        let progress = 5;
+        const fillEl = document.getElementById('loader-fill');
+        const percentEl = document.getElementById('percent-val');
+        const wordEl = document.getElementById('status-word');
+
+        function updateStatusWord(text) {
+            if (!wordEl || wordEl.innerText === text) return;
+            wordEl.style.opacity = '0';
+            setTimeout(() => {
+                wordEl.innerText = text;
+                wordEl.style.opacity = '1';
+            }, 150);
+        }
+
+        function setProgress(val, customWord) {
+            progress = Math.min(Math.max(val, 0), 100);
+            if (fillEl) fillEl.style.width = progress + '%';
+            if (percentEl) percentEl.innerText = progress + '%';
+            if (customWord) updateStatusWord(customWord);
+        }
+
+        let isSetupMode = false;
+
+        try {
+            if (typeof require !== 'undefined') {
+                const { ipcRenderer } = require('electron');
+                ipcRenderer.on('installation-status', (event, text) => {
+                    isSetupMode = true;
+                    if (text.includes('Copying AI files')) {
+                        setProgress(15, 'Copying AI files to user data...');
+                    } else if (text.includes('Creating virtual environment')) {
+                        setProgress(35, 'Building Python environment...');
+                    } else if (text.includes('Installing AI dependencies')) {
+                        setProgress(65, 'Downloading AI dependencies...');
+                    } else if (text.includes('audio drivers')) {
+                        setProgress(85, 'Configuring audio drivers...');
+                    } else if (text.includes('Booting AI') || text.includes('Setup complete')) {
+                        setProgress(100, 'Booting Tilux AI...');
+                    } else {
+                        updateStatusWord(text);
+                    }
+                });
+            }
+        } catch(e) {}
+
+        // Smooth increment loop if in standard launch mode
+        let timer = setInterval(() => {
+            if (!isSetupMode && progress < 95) {
+                progress += Math.floor(Math.random() * 8) + 5;
+                if (progress > 95) progress = 95;
+                
+                // Change words dynamically as progress advances
+                if (progress > 15 && progress <= 35) updateStatusWord("Setting up your environment...");
+                else if (progress > 35 && progress <= 60) updateStatusWord("Initializing AI core...");
+                else if (progress > 60 && progress <= 80) updateStatusWord("Loading workspace modules...");
+                else if (progress > 80) updateStatusWord("Almost ready...");
+
+                if (fillEl) fillEl.style.width = progress + '%';
+                if (percentEl) percentEl.innerText = progress + '%';
+            } else if (progress >= 95 && !isSetupMode) {
+                clearInterval(timer);
+            }
+        }, 150);
+    </script>
+</body>
+</html>

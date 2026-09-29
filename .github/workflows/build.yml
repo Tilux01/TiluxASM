@@ -1,0 +1,76 @@
+name: Build Tilux ASM
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install nuitka
+          playwright install chromium
+
+      - name: Install Patchelf (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y patchelf
+
+      - name: Build Python Backend (Nuitka)
+        run: python build_nuitka.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Node Dependencies
+        working-directory: ./tilux-client
+        run: npm install
+
+      - name: Copy Backend to Electron Resources
+        run: |
+          mkdir -p ./tilux-client/resources
+          cp -r server.dist ./tilux-client/resources/backend
+        if: runner.os != 'Windows'
+
+      - name: Copy Backend to Electron Resources (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir .\tilux-client\resources
+          xcopy /E /I /Y server.dist .\tilux-client\resources\backend
+
+      - name: Build Electron App
+        working-directory: ./tilux-client
+        run: npm run dist
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tilux-ASM-Release-${{ matrix.os }}
+          path: |
+            tilux-client/dist/*.exe
+            tilux-client/dist/*.msi
+            tilux-client/dist/*.AppImage
+            tilux-client/dist/*.deb
+            tilux-client/dist/*.rpm
+            tilux-client/dist/*.snap
+            tilux-client/dist/*.dmg
