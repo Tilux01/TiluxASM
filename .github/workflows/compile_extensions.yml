@@ -54,7 +54,7 @@ jobs:
               if os.path.exists(f): shutil.copy2(f, dist_dir)
           for f in glob.glob("*.so") + glob.glob("*.pyd"): shutil.copy2(f, dist_dir)
           for d in ["static", "templates"]:
-              if os.path.exists(d): shutil.copytree(d, os.path.join(dist_dir, d))
+              if os.path.exists(d): shutil.copytree(d, os.path.join(dist_dir, d), dirs_exist_ok=True)
           os.makedirs(os.path.join(dist_dir, "executors"), exist_ok=True)
           for f in glob.glob("executors/*.so") + glob.glob("executors/*.pyd"): shutil.copy2(f, os.path.join(dist_dir, "executors"))
           '
