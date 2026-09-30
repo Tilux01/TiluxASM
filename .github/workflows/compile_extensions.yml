@@ -78,6 +78,10 @@ jobs:
         run: npm run build:mac
         working-directory: ./tilux-client
 
+      - name: Install Linux Build Dependencies (bsdtar for pacman)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
+
       - name: Build Electron App (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: npm run build:linux
