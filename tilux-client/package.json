@@ -36,7 +36,7 @@
       "category": "Utility"
     },
     "win": {
-      "target": ["nsis", "msi"],
+      "target": ["nsis"],
       "icon": "build/icon.png"
     },
     "mac": {
