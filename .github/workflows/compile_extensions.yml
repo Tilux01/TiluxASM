@@ -1,6 +1,10 @@
 name: Compile Tilux ASM Core Extensions
 
 on:
+  push:
+    branches:
+      - master
+      - main
   workflow_dispatch: # Allows you to trigger the compile manually with a button click
 
 jobs:
