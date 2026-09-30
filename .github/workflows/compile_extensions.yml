@@ -1,0 +1,86 @@
+name: Compile Tilux ASM Core Extensions
+
+on:
+  workflow_dispatch: # Allows you to trigger the compile manually with a button click
+
+jobs:
+  build-extensions:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # This tells GitHub to spin up Windows, Mac, and Linux machines!
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Nuitka and Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install nuitka
+          # Note: If your extensions require specific modules to compile, install them here
+          pip install -r requirements.txt
+
+      - name: Compile Proprietary Files
+        run: |
+          # ONLY the files listed below will be compiled and obfuscated.
+          python -m nuitka --module brain.py
+          python -m nuitka --module credentials.py
+          python -m nuitka --module actions.py
+          python -m nuitka --module firebase_sync.py
+          python -m nuitka --module usage_tracker.py
+          python -m nuitka --module executors/file_executor.py
+          python -m nuitka --module executors/media_executor.py
+          python -m nuitka --module executors/messaging_executor.py
+
+      - name: Create Clean Engine Dist Folder
+        run: |
+          python -c '
+          import os, shutil, glob
+          dist_dir = "tilux_engine_dist"
+          os.makedirs(dist_dir, exist_ok=True)
+          for f in ["server.py", "autostart.py", "install.py", "requirements.txt", "memory.py", "voice.py", "tunnel_manager.py", "history_manager.py", "mac_permissions.py", "README.md", "play_music.py"]:
+              if os.path.exists(f): shutil.copy2(f, dist_dir)
+          for f in glob.glob("*.so") + glob.glob("*.pyd"): shutil.copy2(f, dist_dir)
+          for d in ["static", "templates"]:
+              if os.path.exists(d): shutil.copytree(d, os.path.join(dist_dir, d))
+          os.makedirs(os.path.join(dist_dir, "executors"), exist_ok=True)
+          for f in glob.glob("executors/*.so") + glob.glob("executors/*.pyd"): shutil.copy2(f, os.path.join(dist_dir, "executors"))
+          '
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Frontend Dependencies
+        run: npm install
+        working-directory: ./tilux-client
+
+      - name: Build Electron App (Windows)
+        if: matrix.os == 'windows-latest'
+        run: npm run build:win
+        working-directory: ./tilux-client
+
+      - name: Build Electron App (Mac)
+        if: matrix.os == 'macos-latest'
+        run: npm run build:mac
+        working-directory: ./tilux-client
+
+      - name: Build Electron App (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run build:linux
+        working-directory: ./tilux-client
+
+      - name: Upload Final Installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tilux-Installers-${{ matrix.os }}
+          path: ./tilux-client/dist/*.*

@@ -119,7 +119,7 @@ async function fetchBillingData() {
         const data = await res.json();
         updateWalletModalUI(data);
     } catch (e) {
-        console.warn('Failed to fetch billing status', e);
+        
     }
 }
 
@@ -825,7 +825,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.killAudio = async function() {
         await fetch('http://127.0.0.1:8932/api/kill_audio', { method: 'POST' });
         showToast("Audio playback stopped", "success");
-        console.log("Audio killed");
+        
     };
 
     window.showToast = function(message, type = "info") {
@@ -896,7 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 list.innerHTML = "<li>No processes found.</li>";
             }
         } catch (e) {
-            console.error("Failed to load system stats", e);
+            
         }
     }
 
@@ -934,7 +934,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (document.getElementById('remote-token-val')) document.getElementById('remote-token-val').innerText = data.token;
             }
         } catch(e) {
-            console.error("Error fetching QR pair:", e);
+            
         }
     };
 
@@ -947,7 +947,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('New Pair Token generated: ' + data.pair_token);
             }
         } catch(e) {
-            console.error("Error regenerating pair token:", e);
+            
         }
     };
 
@@ -987,7 +987,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('tts-speed').value = speed;
             document.getElementById('speed-val-display').innerText = (speed >= 0 ? '+' : '') + speed + '%';
         } catch(e) {
-            console.error("Error loading settings:", e);
+            
         }
     }
 
@@ -1024,7 +1024,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch(e) {}
             }
         } catch(e) {
-            console.error("Error saving settings:", e);
+            
         }
     };
 
@@ -1273,7 +1273,7 @@ document.addEventListener('DOMContentLoaded', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(personalData)
-        }).catch(e => console.error(e));
+        }).catch(e => {});
 
         // Restore settings into UI if available
         if (personalData.settings) {
@@ -1282,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (document.getElementById('ai-tone')) document.getElementById('ai-tone').value = personalData.settings.ai_tone || 'Sassy Gen-Z';
         }
       } catch (err) {
-        console.error("Error syncing personal data with Firebase:", err);
+        
       }
     }
 
@@ -1305,9 +1305,9 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.clear();
 
         // 3. Request Python backend to erase local user session & memory file
-        await fetch('http://127.0.0.1:8932/api/clear_user_session', { method: 'POST' }).catch(e => console.error(e));
+        await fetch('http://127.0.0.1:8932/api/clear_user_session', { method: 'POST' }).catch(e => {});
 
-        // 4. Firebase Auth Sign Out
+        // 4. Secure Auth Sign Out
         if (typeof firebase !== 'undefined') {
           await firebase.auth().signOut();
         }
@@ -1320,7 +1320,7 @@ document.addEventListener('DOMContentLoaded', () => {
           showToast("Signed out successfully. All local credentials & user data erased.", "success");
         }
       } catch (err) {
-        console.error("Error during sign out:", err);
+        
         if (typeof showToast === 'function') {
           showToast("Error signing out: " + err.message, "error");
         }
@@ -1333,13 +1333,13 @@ document.addEventListener('DOMContentLoaded', () => {
       firebase.auth().onAuthStateChanged(async (user) => {
         window.currentUser = user;
         if (user) {
-          console.log('[Desktop Auth] Logged in as:', user.email);
+          
           localStorage.setItem('tilux_pc_user_email', user.email);
           hideAuthOverlay();
           updateAccountProfileUI(user);
           await syncUserDataWithFirebase(user);
         } else {
-          console.log('[Desktop Auth] No active session. Displaying Auth Gate.');
+          
           localStorage.clear();
           updateAccountProfileUI(null);
           showAuthOverlay();
@@ -1375,6 +1375,13 @@ document.addEventListener('DOMContentLoaded', () => {
           await firebase.auth().signInWithEmailAndPassword(email, pass);
         } else {
           await firebase.auth().createUserWithEmailAndPassword(email, pass);
+          
+          const fname = document.getElementById('pc-auth-fname') ? document.getElementById('pc-auth-fname').value.trim() : "";
+          const lname = document.getElementById('pc-auth-lname') ? document.getElementById('pc-auth-lname').value.trim() : "";
+          if (fname && window.socket) {
+             window.socket.emit("save_owner_name", { first_name: fname, last_name: lname });
+          }
+          
           if (typeof showToast === 'function') showToast("Account Created Successfully!", "success");
         }
       } catch (err) {
@@ -1489,7 +1496,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetchDesktopHistory();
             }
         } catch(e) {
-            console.error('Error loading history session:', e);
+            
         }
     };
 
