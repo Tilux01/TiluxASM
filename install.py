@@ -27,6 +27,10 @@ def install_system_dependencies():
         if subprocess.run("command -v brew", shell=True, stdout=subprocess.DEVNULL).returncode == 0:
             print("Installing ffmpeg, portaudio, and tesseract via Homebrew...")
             run_command("brew install ffmpeg portaudio cmake tesseract")
+        else:
+            print("\n[WARNING] Homebrew ('brew') is not installed!")
+            print("Tilux needs Homebrew to install ffmpeg, portaudio, and tesseract.")
+            print("Please install Homebrew from https://brew.sh or install dependencies manually.")
     elif os_name == "Windows":
         print("Windows detected. Attempting to install FFmpeg and Tesseract via winget...")
         if subprocess.run("winget --version", shell=True, stdout=subprocess.DEVNULL).returncode == 0:
