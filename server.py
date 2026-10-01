@@ -2,6 +2,12 @@ import os
 import sys
 import subprocess
 
+if sys.version_info < (3, 11):
+    print("\n[CRITICAL ERROR] Tilux ASM requires Python 3.11 or higher to run.")
+    print(f"You are currently running Python {sys.version_info.major}.{sys.version_info.minor}.")
+    print("Please upgrade your Python installation. The 'browser-use' dependency strictly requires Python >= 3.11.")
+    sys.exit(1)
+
 try:
     import flask
     import flask_cors

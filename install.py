@@ -134,6 +134,12 @@ def download_offline_engines():
 
 if __name__ == "__main__":
     print("=== TILUX UNIVERSAL INSTALLER ===")
+    if sys.version_info < (3, 11):
+        print("\n[ERROR] Python 3.11 or higher is strictly required!")
+        print(f"You are running Python {sys.version_info.major}.{sys.version_info.minor}.")
+        print("Please upgrade your Python version to install Tilux dependencies (browser-use requires Python >= 3.11).")
+        sys.exit(1)
+        
     install_system_dependencies()
     install_python_dependencies()
     install_cloudflared()

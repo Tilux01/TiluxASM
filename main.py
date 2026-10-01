@@ -1,4 +1,9 @@
 import sys
+if sys.version_info < (3, 11):
+    print("\n[CRITICAL ERROR] Tilux ASM requires Python 3.11 or higher to run.")
+    print("Please upgrade your Python installation. The 'browser-use' dependency strictly requires Python >= 3.11.")
+    sys.exit(1)
+    
 import threading
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QLineEdit
 from PyQt5.QtCore import pyqtSignal, QObject
