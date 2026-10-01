@@ -330,7 +330,7 @@ body {
 
 .input-top {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 15px;
     margin-bottom: 15px;
 }
@@ -338,9 +338,10 @@ body {
 .spark-icon {
     color: var(--accent);
     font-size: 18px;
+    margin-top: 3px;
 }
 
-.input-top input {
+.input-top textarea {
     background: transparent;
     border: none;
     color: white;
@@ -348,9 +349,15 @@ body {
     width: 100%;
     outline: none;
     font-family: 'Inter', sans-serif;
+    resize: none;
+    min-height: 24px;
+    max-height: 150px;
+    overflow-y: auto;
+    line-height: 1.5;
+    padding: 0;
 }
 
-.input-top input::placeholder {
+.input-top textarea::placeholder {
     color: rgba(255,255,255,0.3);
 }
 
@@ -576,6 +583,35 @@ body {
     color: #ffffff;
     border-radius: 20px 20px 4px 20px;
     box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.msg-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    border: none;
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+}
+
+.msg-content:hover .msg-copy-btn {
+    opacity: 1;
+}
+
+.msg-copy-btn:hover {
+    background: rgba(0, 0, 0, 0.4);
 }
 
 .message.ai .msg-content {

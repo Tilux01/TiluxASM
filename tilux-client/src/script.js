@@ -379,7 +379,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (text && text.trim() !== '') {
             const contentDiv = document.createElement('div');
             contentDiv.className = 'msg-content';
-            contentDiv.innerHTML = text; // allow basic HTML
+            contentDiv.style.position = 'relative';
+            
+            const textDiv = document.createElement('div');
+            textDiv.style.paddingRight = '24px';
+            textDiv.innerHTML = text;
+            contentDiv.appendChild(textDiv);
+            
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'msg-copy-btn';
+            copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i>';
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(textDiv.innerText);
+                copyBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                setTimeout(() => copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i>', 2000);
+            };
+            contentDiv.appendChild(copyBtn);
+            
             msgDiv.appendChild(contentDiv);
         }
 
@@ -482,8 +498,25 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'msg-content';
+        contentDiv.style.position = 'relative';
         
-        contentDiv.innerHTML = `<div id="events-container-${loadingId}" class="events-container" style="display: none;"></div><div id="text-response-${loadingId}"></div>`;
+        const innerContainer = document.createElement('div');
+        innerContainer.style.paddingRight = '24px';
+        innerContainer.innerHTML = `<div id="events-container-${loadingId}" class="events-container" style="display: none;"></div><div id="text-response-${loadingId}"></div>`;
+        contentDiv.appendChild(innerContainer);
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'msg-copy-btn';
+        copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i>';
+        copyBtn.onclick = () => {
+            const textResponse = document.getElementById(`text-response-${loadingId}`);
+            if (textResponse) {
+                navigator.clipboard.writeText(textResponse.innerText);
+                copyBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                setTimeout(() => copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i>', 2000);
+            }
+        };
+        contentDiv.appendChild(copyBtn);
         
         msgDiv.appendChild(contentDiv);
         chatHistory.appendChild(msgDiv);
@@ -639,6 +672,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         inputField.value = '';
+        inputField.style.height = 'auto';
         transitionToChat();
         
         let attachmentHtml = '';
@@ -1126,8 +1160,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isProcessingText) stopGeneration();
         else sendText();
     });
-    inputField.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendText();
+    inputField.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendText();
+        }
+    });
+    
+    inputField.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
     });
     micBtn.addEventListener('click', startVoice);
 
