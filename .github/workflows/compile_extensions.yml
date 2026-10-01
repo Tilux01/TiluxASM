@@ -20,22 +20,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - name: Compile 3.10
-        run: |
-          python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt
-          python -m nuitka --module brain.py --enable-plugin=anti-bloat
-          python -m nuitka --module credentials.py --enable-plugin=anti-bloat
-          python -m nuitka --module actions.py --enable-plugin=anti-bloat
-          python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
-          python -m nuitka --module usage_tracker.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/file_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/media_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/messaging_executor.py --enable-plugin=anti-bloat
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
