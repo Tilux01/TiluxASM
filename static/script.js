@@ -424,31 +424,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let mediaRecorder = null;
+    let audioChunks = [];
+
     async function startVoice() {
-        if (isRecording) return; // Prevent double clicks
+        if (isRecording) {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+            }
+            return;
+        }
         
         isRecording = true;
         micBtn.classList.add('recording');
         micBtn.innerHTML = '<i class="fa-solid fa-stop"></i>';
-        inputField.placeholder = "Listening...";
+        inputField.placeholder = "Listening... (Press Stop to send)";
         inputField.disabled = true;
 
-        const loadingId = Date.now();
-        let aiMessage = null;
-        let pollStatus = false;
-        let statusInterval = null;
-        
-        // Placeholder for user transcript so it appears ABOVE the AI response
-        const userMsgPlaceholder = document.createElement('div');
-        chatHistory.appendChild(userMsgPlaceholder);
-
         try {
-            setTimeout(() => {
-                if (!isRecording) return;
-                pollStatus = true;
-                aiMessage = createAiMessage(loadingId);
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+            
+            mediaRecorder.onstop = async () => {
+                stream.getTracks().forEach(track => track.stop());
                 
-                statusInterval = setInterval(async () => {
+                isRecording = false;
+                micBtn.classList.remove('recording');
+                micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+                inputField.placeholder = "Processing voice...";
+                
+                const loadingId = Date.now();
+                let aiMessage = createAiMessage(loadingId);
+                
+                const userMsgPlaceholder = document.createElement('div');
+                chatHistory.appendChild(userMsgPlaceholder);
+                
+                let pollStatus = true;
+                let statusInterval = setInterval(async () => {
                     if (!pollStatus) {
                         clearInterval(statusInterval);
                         return;
@@ -461,53 +480,64 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     } catch (e) {}
                 }, 500);
-            }, 3000); // Wait 3s before showing status
 
-            const response = await fetch('http://127.0.0.1:8932/api/voice', {
-                method: 'POST'
-            });
-            const data = await response.json();
-            
-            pollStatus = false;
-            if (statusInterval) clearInterval(statusInterval);
-            
-            transitionToChat();
-            
-            if (data.text) {
-                userMsgPlaceholder.className = 'message user';
-                userMsgPlaceholder.innerHTML = `<div class="msg-content">${data.text}</div>`;
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append("audio", audioBlob, "voice.webm");
                 
-                if (!aiMessage) {
-                    aiMessage = createAiMessage(loadingId);
+                try {
+                    const response = await fetch('http://127.0.0.1:8932/api/voice_upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    
+                    pollStatus = false;
+                    clearInterval(statusInterval);
+                    transitionToChat();
+                    
+                    if (data.text) {
+                        userMsgPlaceholder.className = 'message user';
+                        userMsgPlaceholder.innerHTML = `<div class="msg-content">${data.text}</div>`;
+                        
+                        // Pass text to backend to chat
+                        const chatRes = await fetch('http://127.0.0.1:8932/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: data.text })
+                        });
+                        const chatData = await chatRes.json();
+                        
+                        if (chatData.events) {
+                            aiMessage.updateEvents(chatData.events);
+                        }
+                        aiMessage.setReply(chatData.reply || chatData.error);
+                        if (chatData.reply) sendDesktopNotification(chatData.reply);
+                    } else {
+                        userMsgPlaceholder.remove();
+                        aiMessage.setError(data.error || "Did not catch that. Please try again.");
+                    }
+                } catch (e) {
+                    pollStatus = false;
+                    clearInterval(statusInterval);
+                    userMsgPlaceholder.remove();
+                    aiMessage.setError("Voice upload failed.");
                 }
-                if (data.events) {
-                    aiMessage.updateEvents(data.events);
-                }
-                aiMessage.setReply(data.reply || data.error);
-                if (data.reply) sendDesktopNotification(data.reply);
-            } else {
-                userMsgPlaceholder.remove();
-                if (aiMessage) aiMessage.setError("Did not catch that. Please try again.");
-                else showToast(data.error || "Did not catch that. Please try again.", "error");
-            }
+                
+                inputField.placeholder = "Ask Anything...";
+                inputField.disabled = false;
+                inputField.focus();
+            };
+            
+            mediaRecorder.start();
         } catch (e) {
-            pollStatus = false;
-            if (statusInterval) clearInterval(statusInterval);
-            userMsgPlaceholder.remove();
-            if (aiMessage) {
-                 aiMessage.setError("Voice recording failed. Check microphone permissions.");
-            } else {
-                 showToast("Voice recording failed. Check microphone permissions.", "error");
-            }
+            isRecording = false;
+            micBtn.classList.remove('recording');
+            micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+            inputField.placeholder = "Ask Anything...";
+            inputField.disabled = false;
+            showToast("Microphone access denied.", "error");
         }
-
-        // Reset UI
-        isRecording = false;
-        micBtn.classList.remove('recording');
-        micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
-        inputField.placeholder = "Ask Anything...";
-        inputField.disabled = false;
-        inputField.focus();
     }
 
     // New Functionalities

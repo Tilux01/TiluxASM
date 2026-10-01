@@ -355,7 +355,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function sendDesktopNotification(text) {
         if (!text) return;
-        const cleanText = text.replace(/[*_~`]/g, '').slice(0, 150) + (text.length > 150 ? '...' : '');
+        if (document.hasFocus()) return; // Don't show notification if the user is already looking at the app
+        
+        const sanitizedText = String(text).replace(/—/g, '-').replace(/–/g, '-');
+        const cleanText = sanitizedText.replace(/[*_~`]/g, '').slice(0, 150) + (sanitizedText.length > 150 ? '...' : '');
         if (window.electronAPI && window.electronAPI.showNotification) {
             window.electronAPI.showNotification(cleanText);
         }
@@ -411,7 +414,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatMarkdownAndProxyImages(text) {
         if (!text) return '';
-        let parsed = typeof marked !== 'undefined' ? marked.parse(text) : text;
+        // Sanitize em dashes and en dashes globally
+        let sanitized = String(text).replace(/—/g, '-').replace(/–/g, '-');
+        let parsed = typeof marked !== 'undefined' ? marked.parse(sanitized) : sanitized;
         const hostPrefix = 'http://127.0.0.1:8932';
         return parsed.replace(/src=["'](file:\/\/[^"']+|\/[^"']+|[A-Za-z]:\\[^"']+|[^\s"']+\.(?:png|jpg|jpeg|webp|gif|svg))["']/gi, (match, p1) => {
             if (p1.startsWith('http://') || p1.startsWith('https://') || p1.startsWith('data:')) {
@@ -478,7 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const contentDiv = document.createElement('div');
         contentDiv.className = 'msg-content';
         
-        contentDiv.innerHTML = `<div id="events-container-${loadingId}" class="events-container"></div><div id="text-response-${loadingId}"></div>`;
+        contentDiv.innerHTML = `<div id="events-container-${loadingId}" class="events-container" style="display: none;"></div><div id="text-response-${loadingId}"></div>`;
         
         msgDiv.appendChild(contentDiv);
         chatHistory.appendChild(msgDiv);
@@ -613,10 +618,17 @@ document.addEventListener('DOMContentLoaded', () => {
         inputField.focus();
     }
 
-    async function sendText() {
-        if (isProcessingText) return;
+    async function sendText(isVoice = false) {
         const text = inputField.value.trim();
         if (!text && selectedFiles.length === 0) return;
+
+        // Auto-kill previous audio and AI task
+        try {
+            await fetch('http://127.0.0.1:8932/api/kill_audio', { method: 'POST' });
+            if (isProcessingText) {
+                await stopGeneration();
+            }
+        } catch(e) {}
 
         isProcessingText = true;
         
@@ -667,6 +679,9 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('text', text);
             if (currentSessionId) {
                 formData.append('session_id', currentSessionId);
+            }
+            if (isVoice) {
+                formData.append('is_voice', 'true');
             }
             selectedFiles.forEach(file => {
                 formData.append('attachments', file);
@@ -726,90 +741,132 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let audioContext = null;
+    let audioStream = null;
+    let animationId = null;
+    let mediaRecorder = null;
+    let audioChunks = [];
+
     async function startVoice() {
-        if (isRecording) return; // Prevent double clicks
+        if (isRecording) {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+            }
+            return;
+        }
+        
+        // Auto-kill previous audio and AI task
+        try {
+            await fetch('http://127.0.0.1:8932/api/kill_audio', { method: 'POST' });
+            if (isProcessingText) {
+                await stopGeneration();
+            }
+        } catch(e) {}
         
         isRecording = true;
         micBtn.classList.add('recording');
         micBtn.innerHTML = '<i class="fa-solid fa-stop"></i>';
-        inputField.placeholder = "Listening...";
+        inputField.placeholder = "Listening... (Click Stop to Send)";
         inputField.disabled = true;
 
-        const loadingId = Date.now();
-        let aiMessage = null;
-        let pollStatus = false;
-        let statusInterval = null;
-        
-        // Placeholder for user transcript so it appears ABOVE the AI response
-        const userMsgPlaceholder = document.createElement('div');
-        chatHistory.appendChild(userMsgPlaceholder);
-
         try {
-            setTimeout(() => {
+            audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            // Setup Visualizer
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(audioStream);
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            const visualizerContainer = document.getElementById('voice-visualizer');
+            if (visualizerContainer) visualizerContainer.classList.remove('hidden');
+            const bars = document.querySelectorAll('.voice-visualizer .bar');
+            
+            function drawVisualizer() {
                 if (!isRecording) return;
-                pollStatus = true;
-                aiMessage = createAiMessage(loadingId);
+                animationId = requestAnimationFrame(drawVisualizer);
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+                let average = sum / bufferLength;
                 
-                statusInterval = setInterval(async () => {
-                    if (!pollStatus) {
-                        clearInterval(statusInterval);
-                        return;
+                if (bars.length > 0) {
+                    const scaleBase = Math.max(0.2, (average / 128));
+                    bars[0].style.transform = `scaleY(${Math.max(0.3, scaleBase * 0.8)})`;
+                    bars[1].style.transform = `scaleY(${Math.max(0.4, scaleBase * 1.2)})`;
+                    bars[2].style.transform = `scaleY(${Math.max(0.5, scaleBase * 1.5)})`;
+                    bars[3].style.transform = `scaleY(${Math.max(0.4, scaleBase * 1.2)})`;
+                    bars[4].style.transform = `scaleY(${Math.max(0.3, scaleBase * 0.8)})`;
+                }
+            }
+            drawVisualizer();
+            
+            // Setup Media Recorder
+            mediaRecorder = new MediaRecorder(audioStream);
+            audioChunks = [];
+            
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+            
+            mediaRecorder.onstop = async () => {
+                isRecording = false;
+                micBtn.classList.remove('recording');
+                micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+                
+                if (audioStream) audioStream.getTracks().forEach(track => track.stop());
+                if (audioContext) audioContext.close();
+                cancelAnimationFrame(animationId);
+                if (visualizerContainer) visualizerContainer.classList.add('hidden');
+                
+                if (window.electronAPI && window.electronAPI.hideWakePopup) {
+                    window.electronAPI.hideWakePopup();
+                }
+                
+                inputField.placeholder = "Processing voice...";
+                
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append("audio", audioBlob, "voice.webm");
+                
+                try {
+                    const response = await fetch('http://127.0.0.1:8932/api/voice_upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    
+                    if (data.text) {
+                        inputField.value = data.text;
+                        sendText(true);
+                    } else {
+                        showToast(data.error || "Did not catch that. Please try again.", "error");
                     }
-                    try {
-                        const res = await fetch('http://127.0.0.1:8932/api/status');
-                        const data = await res.json();
-                        if (data.events && aiMessage) {
-                            aiMessage.updateEvents(data.events);
-                        }
-                    } catch (e) {}
-                }, 500);
-            }, 3000); // Wait 3s before showing status
-
-            const response = await fetch('http://127.0.0.1:8932/api/voice', {
-                method: 'POST'
-            });
-            const data = await response.json();
-            
-            pollStatus = false;
-            if (statusInterval) clearInterval(statusInterval);
-            
-            transitionToChat();
-            
-            if (data.text) {
-                userMsgPlaceholder.className = 'message user';
-                userMsgPlaceholder.innerHTML = `<div class="msg-content">${data.text}</div>`;
+                } catch (e) {
+                    showToast("Voice upload failed.", "error");
+                }
                 
-                if (!aiMessage) {
-                    aiMessage = createAiMessage(loadingId);
-                }
-                if (data.events) {
-                    aiMessage.updateEvents(data.events);
-                }
-                aiMessage.setReply(data.reply || data.error);
-                if (data.reply) sendDesktopNotification(data.reply);
-            } else {
-                userMsgPlaceholder.remove();
-                if (aiMessage) aiMessage.setError("Did not catch that. Please try again.");
-                else showToast(data.error || "Did not catch that. Please try again.", "error");
-            }
-        } catch (e) {
-            pollStatus = false;
-            if (statusInterval) clearInterval(statusInterval);
-            userMsgPlaceholder.remove();
-            if (aiMessage) {
-                 aiMessage.setError("Voice recording failed. Check microphone permissions.");
-            } else {
-                 showToast("Voice recording failed. Check microphone permissions.", "error");
-            }
+                inputField.placeholder = "Ask Anything...";
+                inputField.disabled = false;
+                inputField.focus();
+                window.scrollToBottom();
+            };
+            
+            mediaRecorder.start();
+        } catch (err) {
+            isRecording = false;
+            micBtn.classList.remove('recording');
+            micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+            inputField.placeholder = "Ask Anything...";
+            inputField.disabled = false;
+            console.error("Microphone access denied", err);
+            showToast("Microphone access denied.", "error");
         }
-
-        // Reset UI
-        isRecording = false;
-        micBtn.classList.remove('recording');
-        micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
-        inputField.placeholder = "Ask Anything...";
-        inputField.disabled = false;
-        inputField.focus();
     }
 
     // New Functionalities
@@ -829,6 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.showToast = function(message, type = "info") {
+        message = String(message).replace(/—/g, '-').replace(/–/g, '-');
         let container = document.getElementById('toast-container');
         if (!container) {
             container = document.createElement('div');
@@ -975,7 +1033,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             document.getElementById('tts-toggle').checked = data.tts_enabled;
-            document.getElementById('tts-voice').value = data.tts_voice || 'en-US-AriaNeural';
+            if (document.getElementById('wake-word-toggle')) {
+                document.getElementById('wake-word-toggle').checked = data.wake_word_enabled !== undefined ? data.wake_word_enabled : true;
+            }
+            let savedVoice = data.tts_voice || 'piper-model/en_US-lessac-medium.onnx';
+            if (savedVoice.includes('Neural') || !savedVoice.includes('piper-model')) {
+                savedVoice = 'piper-model/en_US-lessac-medium.onnx';
+            }
+            document.getElementById('tts-voice').value = savedVoice;
+            
             if (document.getElementById('ai-tone')) {
                 document.getElementById('ai-tone').value = data.ai_tone || 'Sassy Gen-Z';
             }
@@ -1004,6 +1070,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         let data = {
             tts_enabled: document.getElementById('tts-toggle').checked,
+            wake_word_enabled: document.getElementById('wake-word-toggle') ? document.getElementById('wake-word-toggle').checked : true,
             tts_voice: document.getElementById('tts-voice').value,
             tts_speed: (speedVal >= 0 ? '+' : '') + speedVal + '%',
             ai_tone: toneVal,
@@ -1032,13 +1099,35 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchSystemStats, 3000); // Update stats every 3s
     fetchSystemStats(); // Initial fetch
 
+    async function checkWakeWord() {
+        if (isProcessingText || document.getElementById('voice-bars').style.display === 'flex') return;
+        try {
+            const res = await fetch('http://127.0.0.1:8932/api/wake_word');
+            const data = await res.json();
+            if (data.triggered) {
+                await fetch('http://127.0.0.1:8932/api/wake_word', {method: 'POST'});
+                
+                // Show the glowing orb on the desktop ONLY if the main window is not focused
+                if (!document.hasFocus() && window.electronAPI && window.electronAPI.showWakePopup) {
+                    window.electronAPI.showWakePopup();
+                }
+
+                const audio = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU'); // dummy short sound, better use a real chime
+                audio.play().catch(e => {});
+                startVoice();
+            }
+        } catch(e) {}
+    }
+    setInterval(checkWakeWord, 800);
+
+
     // Event Listeners
     sendBtn.addEventListener('click', () => {
         if (isProcessingText) stopGeneration();
         else sendText();
     });
     inputField.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !isProcessingText) sendText();
+        if (e.key === 'Enter') sendText();
     });
     micBtn.addEventListener('click', startVoice);
 

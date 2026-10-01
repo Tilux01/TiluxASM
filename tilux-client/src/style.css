@@ -2182,3 +2182,40 @@ img.ai-generated-img:not(.ai-generated-container .ai-generated-img) {
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     display: block;
 }
+
+/* Modern Voice Visualizer */
+.voice-visualizer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 40px;
+    padding: 0 10px;
+    margin-right: 5px;
+    transition: opacity 0.3s ease;
+}
+
+.voice-visualizer.hidden {
+    display: none !important;
+}
+
+.voice-visualizer .bar {
+    width: 4px;
+    height: 100%;
+    background: var(--accent, #a855f7);
+    border-radius: 2px;
+    animation: bounce-bar 1.2s infinite ease-in-out;
+    transform-origin: center bottom;
+    box-shadow: 0 0 8px var(--accent, #a855f7);
+}
+
+.voice-visualizer .bar:nth-child(1) { height: 30%; animation-delay: -0.4s; }
+.voice-visualizer .bar:nth-child(2) { height: 60%; animation-delay: -0.2s; }
+.voice-visualizer .bar:nth-child(3) { height: 100%; animation-delay: 0s; }
+.voice-visualizer .bar:nth-child(4) { height: 60%; animation-delay: -0.2s; }
+.voice-visualizer .bar:nth-child(5) { height: 30%; animation-delay: -0.4s; }
+
+@keyframes bounce-bar {
+    0%, 100% { transform: scaleY(0.5); }
+    50% { transform: scaleY(1.0); }
+}

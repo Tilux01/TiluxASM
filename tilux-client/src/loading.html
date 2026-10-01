@@ -35,8 +35,8 @@
         }
 
         .app-logo-img {
-            width: 195px;
-            height: 195px;
+            width: 120px;
+            height: 120px;
             object-fit: contain;
             filter: none;
         }
@@ -129,19 +129,24 @@
                 const { ipcRenderer } = require('electron');
                 ipcRenderer.on('installation-status', (event, text) => {
                     isSetupMode = true;
+                    // Always show the real-time output text to the user
+                    updateStatusWord(text);
+                    
                     if (text.includes('Copying AI files')) {
-                        setProgress(15, 'Copying AI files to user data...');
+                        if (progress < 15) progress = 15;
                     } else if (text.includes('Creating virtual environment')) {
-                        setProgress(35, 'Building Python environment...');
-                    } else if (text.includes('Installing AI dependencies')) {
-                        setProgress(65, 'Downloading AI dependencies...');
+                        if (progress < 35) progress = 35;
+                    } else if (text.includes('Collecting') || text.includes('Downloading')) {
+                        // Dynamically move between 35% and 85% during pip install
+                        if (progress < 85) progress += 0.5;
                     } else if (text.includes('audio drivers')) {
-                        setProgress(85, 'Configuring audio drivers...');
+                        if (progress < 85) progress = 85;
                     } else if (text.includes('Booting AI') || text.includes('Setup complete')) {
-                        setProgress(100, 'Booting Tilux AI...');
-                    } else {
-                        updateStatusWord(text);
+                        progress = 100;
                     }
+                    
+                    if (fillEl) fillEl.style.width = Math.floor(progress) + '%';
+                    if (percentEl) percentEl.innerText = Math.floor(progress) + '%';
                 });
             }
         } catch(e) {}

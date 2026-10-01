@@ -367,14 +367,12 @@
                     </div>
 
                     <div class="setting-row" style="margin-bottom: 20px;">
-                        <div style="font-size: 14px; color: #fff; margin-bottom: 10px;">AI Voice Profile</div>
+                        <div style="font-size: 14px; color: #fff; margin-bottom: 10px;">AI Voice Profile (Offline)</div>
                         <select id="tts-voice" onchange="saveSettings()" style="width: 100%; padding: 12px; background: #09090b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-family: inherit; font-size: 14px;">
-                            <option value="en-US-AriaNeural">US English (Aria - Female)</option>
-                            <option value="en-US-GuyNeural">US English (Guy - Male)</option>
-                            <option value="en-GB-SoniaNeural">UK English (Sonia - Female)</option>
-                            <option value="en-GB-RyanNeural">UK English (Ryan - Male)</option>
-                            <option value="en-NG-EzinneNeural">Nigerian English (Ezinne - Female)</option>
-                            <option value="en-NG-AbeoNeural">Nigerian English (Abeo - Male)</option>
+                            <option value="piper-model/en_US-lessac-medium.onnx">US English (Lessac - Professional Woman)</option>
+                            <option value="piper-model/en_US-ryan-medium.onnx">US English (Ryan - Professional Man)</option>
+                            <option value="piper-model/en_US-amy-medium.onnx">US English (Amy - Gen-Z Girl)</option>
+                            <option value="piper-model/en_US-joe-medium.onnx">US English (Joe - Gen-Z Guy)</option>
                         </select>
                     </div>
 
@@ -398,13 +396,7 @@
                         </select>
                     </div>
 
-                    <div class="setting-row">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <div style="font-size: 14px; color: #fff;">Speech Speed</div>
-                            <div style="font-size: 12px; color: #a855f7;" id="speed-val-display">+20%</div>
-                        </div>
-                        <input type="range" id="tts-speed" min="-50" max="100" value="20" class="styled-slider" onchange="saveSettings()" oninput="document.getElementById('speed-val-display').innerText = (this.value >= 0 ? '+' : '') + this.value + '%'" style="width: 100%;">
-                    </div>
+                    <input type="hidden" id="tts-speed" value="0">
                 </div>
 
                 <!-- Sudo & Remote Vault Settings -->

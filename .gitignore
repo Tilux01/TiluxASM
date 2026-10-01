@@ -12,6 +12,9 @@ dist/
 node_modules/
 
 # --- Tilux ASM build & secret exclusions ---
+piper-model/
+vosk-model/
+voices.json
 Tilux ASM.iso
 iso_root/
 dist_desktop/

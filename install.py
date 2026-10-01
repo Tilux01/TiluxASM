@@ -46,38 +46,12 @@ def install_python_dependencies():
     if not os.path.exists(pip_cmd.replace("./", "").replace(".\\", "")):
         pip_cmd = sys.executable + " -m pip"
 
-    packages = [
-        "pyautogui", 
-        "pillow", 
-        "playwright", 
-        "requests", 
-        "beautifulsoup4",
-        "browser-use",
-        "open-interpreter",
-        "pytesseract",
-        "pyperclip",
-        "flask",
-        "flask-cors",
-        "psutil",
-        "SpeechRecognition",
-        "PyAudio",
-        "edge-tts",
-        "langchain_openai",
-        "langchain_community"
-    ]
-    
-    run_command(f"{pip_cmd} install " + " ".join(packages))
-    
-    print("\nInstalling Playwright browsers...")
-    playwright_cmd = "./venv/bin/playwright" if platform.system() != "Windows" else ".\\venv\\Scripts\\playwright"
-    if not os.path.exists(playwright_cmd.replace("./", "").replace(".\\", "")):
-        playwright_cmd = "playwright"
-        
-    if platform.system() == "Linux":
-        print("Installing Playwright system dependencies...")
-        run_command(f"sudo {playwright_cmd} install-deps")
-        
-    run_command(f"{playwright_cmd} install")
+    req_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+    if os.path.exists(req_file):
+        run_command(f"{pip_cmd} install -r \"{req_file}\"")
+    else:
+        print("requirements.txt not found! Skipping dependency install.")
+    # Playwright browser download skipped - App uses Host Browser via CDP
 
 def install_cloudflared():
     print("\nEnsuring Secure Tunnel dependency is available...")
@@ -99,15 +73,62 @@ def install_cloudflared():
     except Exception as e:
         print(f"Notice: tunnel auto-install notice: {e}. Tilux will run npx cloudflared dynamically.")
 
+def download_offline_engines():
+    print("\nDownloading required offline AI models (this may take a few minutes)...")
+    import urllib.request
+    import zipfile
+    
+    # 1. Download Vosk Wake Word Model (40MB)
+    if not os.path.exists("vosk-model"):
+        print("Downloading Vosk wake word model...")
+        vosk_url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+        urllib.request.urlretrieve(vosk_url, "vosk.zip")
+        with zipfile.ZipFile("vosk.zip", 'r') as zip_ref:
+            zip_ref.extractall(".")
+        os.rename("vosk-model-small-en-us-0.15", "vosk-model")
+        os.remove("vosk.zip")
+        print("✅ Vosk downloaded.")
+        
+    # 2. Download Piper TTS Model (20MB)
+    if not os.path.exists("piper-model"):
+        os.makedirs("piper-model")
+    if not os.path.exists("piper-model/en_US-lessac-medium.onnx"):
+        print("Downloading Piper offline TTS model...")
+        base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+        urllib.request.urlretrieve(base_url, "piper-model/en_US-lessac-medium.onnx")
+        urllib.request.urlretrieve(base_url + ".json", "piper-model/en_US-lessac-medium.onnx.json")
+        print("✅ Piper TTS downloaded.")
+
+    # 3. Cache Whisper AI Model (140MB)
+    try:
+        python_cmd = "./venv/bin/python" if platform.system() != "Windows" else ".\\venv\\Scripts\\python"
+        if not os.path.exists(python_cmd.replace("./", "").replace(".\\", "")):
+            python_cmd = sys.executable
+        print("Caching Faster-Whisper AI into memory...")
+        script = "from faster_whisper import WhisperModel; WhisperModel('tiny.en', device='cpu', compute_type='int8')"
+        run_command(f"{python_cmd} -c \"{script}\"")
+        print("✅ Whisper downloaded.")
+    except Exception as e:
+        print(f"Notice: Whisper download deferred until first run. Error: {e}")
+    
+    print("\n✅ All Offline AI engines are fully installed and cached!")
+
 if __name__ == "__main__":
     print("=== TILUX UNIVERSAL INSTALLER ===")
     install_system_dependencies()
     install_python_dependencies()
     install_cloudflared()
+    download_offline_engines()
     try:
         from autostart import enable_autostart
         enable_autostart()
         print("✅ System boot autostart enabled!")
     except Exception as e:
         print(f"Notice: Autostart setup error: {e}")
+        
+    # Write setup complete flag
+    setup_flag = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".setup_complete")
+    with open(setup_flag, "w") as f:
+        f.write("done")
+        
     print("\n✅ Tilux Agent successfully installed for this OS!")

@@ -1,0 +1,7 @@
+# Ignore sensitive proprietary AI source files when GitHub generates the "Source code" release zip
+brain.py export-ignore
+actions.py export-ignore
+credentials.py export-ignore
+firebase_sync.py export-ignore
+usage_tracker.py export-ignore
+executors/*.py export-ignore

@@ -28,6 +28,7 @@ async function setupAndRunBackend() {
     if (app.isPackaged) {
         const userDataPath = app.getPath('userData');
         backendCwd = path.join(userDataPath, 'backend');
+        
         const venvPath = path.join(backendCwd, 'venv');
         
         pyExe = process.platform === 'win32' ? 
@@ -65,41 +66,44 @@ async function setupAndRunBackend() {
                 const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
                 if (mainWindow) mainWindow.webContents.send('installation-status', 'Creating virtual environment (this may take a minute)...');
                 
-                exec(`${pythonCmd} -m venv venv`, { cwd: backendCwd }, (err, stdout, stderr) => {
-                    if (err) {
-                        console.error(err);
-                        const errMsg = (stderr || err.message).toLowerCase();
-                        let displayMsg = 'Error creating venv: ' + err.message;
-                        if (errMsg.includes('venv package') || errMsg.includes('ensurepip')) {
-                            displayMsg = 'Missing python3-venv! Open terminal, run "sudo apt install python3-venv", then restart this app.';
-                        }
-                        if (mainWindow) mainWindow.webContents.send('installation-status', displayMsg);
-                        return reject(err);
-                    }
-                    
-                    if (mainWindow) mainWindow.webContents.send('installation-status', 'Installing AI dependencies (this may take 1-3 minutes)...');
-                    const pipCmd = process.platform === 'win32' ? 
-                        path.join('venv', 'Scripts', 'pip.exe') : path.join('.', 'venv', 'bin', 'pip');
-                        
-                    exec(`${pipCmd} install -r requirements.txt`, { cwd: backendCwd }, (err, stdout, stderr) => {
-                        if (err) {
-                            console.error(err);
-                            if (mainWindow) mainWindow.webContents.send('installation-status', 'Error installing dependencies: ' + err.message);
-                            return reject(err);
-                        }
-                        
-                        // Try to install PyAudio optionally (often fails on Linux without portaudio19-dev)
-                        if (mainWindow) mainWindow.webContents.send('installation-status', 'Installing optional audio drivers...');
-                        exec(`${pipCmd} install PyAudio==0.2.14`, { cwd: backendCwd }, (paErr) => {
-                            if (paErr) {
-                                console.warn('PyAudio optional install failed, voice input may not work:', paErr.message);
+                function runSpawn(cmd, args, cwdStr) {
+                    return new Promise((res, rej) => {
+                        const child = spawn(cmd, args, { cwd: cwdStr, shell: true });
+                        child.stdout.on('data', data => {
+                            const lines = data.toString().split('\n').map(l => l.trim()).filter(l => l);
+                            if (mainWindow && lines.length > 0) {
+                                mainWindow.webContents.send('installation-status', lines[lines.length - 1]);
                             }
-                            // Create flag file to mark successful setup
-                            fs.writeFileSync(setupCompleteFile, 'done');
-                            resolve();
                         });
+                        child.stderr.on('data', data => {
+                            const lines = data.toString().split('\n').map(l => l.trim()).filter(l => l);
+                            if (mainWindow && lines.length > 0) {
+                                mainWindow.webContents.send('installation-status', lines[lines.length - 1]);
+                            }
+                        });
+                        child.on('close', code => {
+                            if (code === 0) res();
+                            else rej(new Error(`${cmd} exited with code ${code}`));
+                        });
+                        child.on('error', err => rej(err));
                     });
-                });
+                }
+                
+                runSpawn(pythonCmd, ['-m', 'venv', 'venv'], backendCwd)
+                    .then(() => {
+                        const pyCmd = process.platform === 'win32' ? path.join('venv', 'Scripts', 'python.exe') : path.join('.', 'venv', 'bin', 'python3');
+                        if (mainWindow) mainWindow.webContents.send('installation-status', 'Running system setup (FFmpeg, OCR, Dependencies)...');
+                        return runSpawn(pyCmd, ['install.py'], backendCwd);
+                    })
+                    .then(() => {
+                        fs.writeFileSync(setupCompleteFile, 'done');
+                        resolve();
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        if (mainWindow) mainWindow.webContents.send('installation-status', 'Installation Error: ' + err.message);
+                        reject(err);
+                    });
             });
             console.log('Setup complete.');
             if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup complete! Booting AI...');
@@ -113,11 +117,11 @@ async function setupAndRunBackend() {
             path.join(backendCwd, 'venv', 'Scripts', 'python.exe') : 
             path.join(backendCwd, 'venv', 'bin', 'python3');
     }
-
+    
     const http = require('http');
     const checkBackendRunning = () => {
         return new Promise((resolve) => {
-            const req = http.get('http://localhost:8932/api/host_info', (res) => {
+            const req = http.get('http://127.0.0.1:8932/api/host_info', (res) => {
                 resolve(res.statusCode === 200);
             });
             req.on('error', () => resolve(false));
@@ -130,7 +134,8 @@ async function setupAndRunBackend() {
 
     const isRunning = await checkBackendRunning();
     if (!isRunning) {
-        pyProc = spawn(pyExe, [script], { cwd: backendCwd });
+        const spawnArgs = script ? [script] : [];
+        pyProc = spawn(pyExe, spawnArgs, { cwd: backendCwd });
         console.log('Python backend spawned successfully.');
         pyProc.stdout.on('data', (data) => {
             console.log(`Python: ${data.toString()}`);
@@ -180,10 +185,34 @@ function createWindow () {
 }
 
 app.whenReady().then(async () => {
-    createWindow();
+    const isWidgetMode = process.argv.includes('--widget');
+    if (isWidgetMode) {
+        // We still need to call the IPC handler logic we defined below, so we just trigger it internally
+        // But the IPC handler doesn't exist until the event is fired, so let's extract the wake window logic
+        createWakeWindow();
+    } else {
+        createWindow();
+    }
     
     try {
         await setupAndRunBackend();
+        
+        // Save the executable path to settings so the pure-background Python daemon 
+        // knows how to launch the widget when compiled for Windows/Mac
+        let settingsPath;
+        if (app.isPackaged) {
+            settingsPath = path.join(app.getPath('userData'), 'backend', 'settings.json');
+        } else {
+            settingsPath = path.join(__dirname, '..', 'settings.json');
+        }
+        
+        if (fs.existsSync(settingsPath)) {
+            try {
+                const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+                settings.frontend_executable = app.isPackaged ? process.execPath : 'npm';
+                fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 4));
+            } catch(e) {}
+        }
     } catch (e) {
         console.error("Backend setup failed:", e);
     }
@@ -203,6 +232,73 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
     exitPythonProcess();
+});
+
+let wakeWindow = null;
+
+function createWakeWindow() {
+    if (wakeWindow) return;
+    
+    // Create a frameless, transparent window for the glowing orb
+    wakeWindow = new BrowserWindow({
+        width: 400,
+        height: 250,
+        transparent: true,
+        frame: false,
+        alwaysOnTop: true,
+        hasShadow: false,
+        resizable: false,
+        focusable: true,
+        skipTaskbar: true,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+
+    wakeWindow.loadFile(path.join(__dirname, 'src', 'wake_popup.html'));
+    
+    // Position at the bottom center of the screen
+    const { screen, net } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    // Use absolute screen bounds instead of workArea to stick strictly to the bottom edge
+    const { width, height } = primaryDisplay.bounds;
+    
+    wakeWindow.setBounds({
+        x: Math.round(width / 2 - 200),
+        y: Math.round(height - 230), // Adjusted to keep the bottom anchored since height is now 250
+        width: 400,
+        height: 250
+    });
+    
+    wakeWindow.show(); // Show WITH focus so it can detect blur
+    
+    wakeWindow.on('blur', () => {
+        // User clicked outside! Abort the AI voice and processing!
+        try {
+            const req = net.request({ method: 'POST', url: 'http://127.0.0.1:8932/api/stop' });
+            req.on('response', () => {
+                if (process.argv.includes('--widget')) app.quit();
+            });
+            req.on('error', () => {
+                if (process.argv.includes('--widget')) app.quit();
+            });
+            req.end();
+        } catch(e) {
+            if (process.argv.includes('--widget')) app.quit();
+        }
+    });
+}
+
+ipcMain.on('show-wake-popup', () => {
+    createWakeWindow();
+});
+
+ipcMain.on('hide-wake-popup', () => {
+    if (wakeWindow) {
+        wakeWindow.close();
+        wakeWindow = null;
+    }
 });
 
 ipcMain.on('show-notification', (event, text) => {

@@ -1,11 +1,23 @@
 import os
 import sys
+import subprocess
+
+try:
+    import flask
+    import flask_cors
+    import psutil
+    import openai
+except ImportError as e:
+    print(f"Missing dependency detected: {e}. Auto-installing from requirements.txt...")
+    req_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+    subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_path])
+    print("Dependencies installed successfully. Restarting server...")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 # Configure Playwright browsers path if compiled with Nuitka
 if "__compiled__" in globals():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(base_dir, "playwright_browsers")
-
 import credentials
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
@@ -16,7 +28,7 @@ import subprocess
 from brain import Brain
 from voice import speak, listen
 from memory import load_memory
-
+import wake_word
 
 # Werkzeug logging enabled for debugging
 log = logging.getLogger('werkzeug')
@@ -25,6 +37,7 @@ log.setLevel(logging.INFO)
 app = Flask(__name__)
 CORS(app) # Allow cross-origin requests from the Electron app
 
+# SocketIO is initialized further down
 brain = Brain()
 from history_manager import history_manager
 
@@ -35,9 +48,10 @@ import os
 SETTINGS_FILE = "settings.json"
 DEFAULT_SETTINGS = {
     "tts_enabled": True,
-    "tts_voice": "en-GB-SoniaNeural",
+    "wake_word_enabled": True,
+    "tts_voice": "en-US-AriaNeural",
     "tts_speed": "+20%",
-    "ai_tone": "Sassy Gen-Z",
+    "ai_tone": "Professional",
     "setup_complete": False,
     "api_key": ""
 }
@@ -57,6 +71,146 @@ def save_settings(data):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=4)
     firebase_sync.sync_settings(HOST_ID, data)
+
+WAKE_WORD_TRIGGERED = False
+last_ui_poll_time = 0
+
+WIDGET_STATE = {"main_text": "Listening...", "sub_text": ""}
+
+@app.route("/api/widget_state", methods=["GET"])
+def widget_state_endpoint():
+    # Merge the current brain status into the sub_text if it's thinking
+    sub = WIDGET_STATE["sub_text"]
+    if WIDGET_STATE["main_text"] != "Listening...":
+        sub = getattr(brain, "current_status", sub)
+    return jsonify({
+        "main_text": WIDGET_STATE["main_text"],
+        "sub_text": sub
+    })
+
+current_widget_proc = None
+
+def _on_wake_word():
+    global WAKE_WORD_TRIGGERED, WIDGET_STATE, current_widget_proc
+    WAKE_WORD_TRIGGERED = True
+    socketio.emit("wake_word_detected", {"status": "listening"})
+    
+    import time
+    if time.time() - last_ui_poll_time < 3:
+        return
+        
+    # Abort any ongoing AI generation or speech instantly!
+    brain.abort_flag = True
+    stop_audio_process()
+    
+    import subprocess
+    import threading
+    settings = load_settings()
+    exe_path = settings.get("frontend_executable", "npm")
+    
+    WIDGET_STATE = {"main_text": "Listening...", "sub_text": ""}
+    
+    if current_widget_proc is None or current_widget_proc.poll() is not None:
+        if exe_path == "npm":
+            current_widget_proc = subprocess.Popen(["npm", "start", "--", "--widget"], cwd="tilux-client")
+        else:
+            current_widget_proc = subprocess.Popen([exe_path, "--widget"])
+    
+    def background_task(my_proc):
+        global WIDGET_STATE
+        try:
+            WIDGET_STATE["main_text"] = "Booting up..."
+            WIDGET_STATE["sub_text"] = "Loading AI models..."
+            
+            print("[Server] Generating dynamic tone acknowledgment...")
+            ack = brain.generate_wake_acknowledgment()
+            print(f"[Server] Acknowledging wake word (speaking '{ack}')...")
+            brain.abort_flag = False # Reset so we can actually speak the acknowledgment!
+            speak(ack)
+            stop_audio_process()
+            
+            WIDGET_STATE["main_text"] = "Listening..."
+            WIDGET_STATE["sub_text"] = "Speak your command..."
+            print("[Server] Opening microphone to listen for command...")
+            import time
+            time.sleep(0.2) # Small buffer to ensure wake word engine has fully released ALSA mic lock
+            text = listen()
+            print(f"[Server] Voice capture complete. Recognized text: '{text}'")
+            
+            # Change state immediately so UI feels snappy
+            if text:
+                WIDGET_STATE["main_text"] = f'"{text}"'
+                WIDGET_STATE["sub_text"] = "Processing..."
+                
+            # INSTANTLY release the mic so the user can interrupt the AI while it thinks/speaks!
+            import wake_word
+            wake_word.resume_wake_word()
+            
+            if text:
+                
+                brain.abort_flag = False
+                brain.abort_flag = False
+                brain.clear_history()
+                
+                reply_data = brain.process_input(text, [], is_voice=True)
+                
+                if brain.abort_flag:
+                    return # Interrupted by another wake word!
+                    
+                reply_text = reply_data.get("reply", "")
+                
+                if reply_text:
+                    import re, threading, time
+                    clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
+                    WIDGET_STATE["sub_text"] = ""
+                    WIDGET_STATE["main_text"] = ""
+                    
+                    def run_speech():
+                        speak(reply_text)
+                        
+                    t = threading.Thread(target=run_speech, daemon=True)
+                    t.start()
+                    
+                    words = clean_widget_text.split(" ")
+                    display_text = ""
+                    for word in words:
+                        if getattr(brain, "abort_flag", False):
+                            break
+                        display_text += word + " "
+                        WIDGET_STATE["main_text"] = display_text.strip()
+                        time.sleep(0.35) # ~170 words per minute speaking pace
+                        
+                    t.join() # Wait for voice to finish
+            else:
+                if not brain.abort_flag:
+                    WIDGET_STATE["main_text"] = "I didn't catch that."
+                    speak("I didn't catch that.")
+        finally:
+            import wake_word
+            wake_word.resume_wake_word()
+            
+            # Only terminate if we were NOT interrupted by a new task
+            if current_widget_proc == my_proc and not brain.abort_flag:
+                try:
+                    my_proc.terminate()
+                except:
+                    pass
+                
+    threading.Thread(target=background_task, args=(current_widget_proc,), daemon=True).start()
+
+if load_settings().get("wake_word_enabled", True):
+    wake_word.start_wake_word(_on_wake_word)
+
+@app.route("/api/wake_word", methods=["GET", "POST"])
+def wake_word_endpoint():
+    global WAKE_WORD_TRIGGERED, last_ui_poll_time
+    if request.method == "POST":
+        WAKE_WORD_TRIGGERED = False
+        return jsonify({"status": "cleared"})
+    
+    import time
+    last_ui_poll_time = time.time()
+    return jsonify({"triggered": WAKE_WORD_TRIGGERED})
 
 @app.route("/")
 def home():
@@ -80,6 +234,10 @@ def manage_settings():
     else:
         new_settings = request.json
         save_settings(new_settings)
+        if new_settings.get("wake_word_enabled", True):
+            wake_word.start_wake_word(_on_wake_word)
+        else:
+            wake_word.stop_wake_word()
         return jsonify({"status": "success"})
 
 @app.route("/api/clear_user_session", methods=["POST"])
@@ -214,10 +372,12 @@ def chat():
     if request.is_json:
         user_text = request.json.get("text", "").strip()
         session_id = request.json.get("session_id")
+        is_voice = str(request.json.get("is_voice", "")).lower() == "true"
         attachments = []
     else:
         user_text = request.form.get("text", "").strip()
         session_id = request.form.get("session_id")
+        is_voice = str(request.form.get("is_voice", "")).lower() == "true"
         attachments = request.files.getlist("attachments")
         
     if not user_text and not attachments:
@@ -248,30 +408,72 @@ def chat():
     sid = history_manager.add_message(session_id, "User", user_text, attachments=attachment_urls)
 
     try:
-        reply_data = brain.process_input(user_text, attachments=saved_files, session_id=sid)
+        reply_data = brain.process_input(user_text, attachments=saved_files, session_id=sid, is_voice=is_voice)
     except Exception as e:
         reply_data = {"reply": "Task failed: " + str(e), "events": []}
         
     reply_text = reply_data.get("reply", "").replace("—", "-")
+    reply_data["reply"] = reply_text
+    if "thinking" in reply_data and isinstance(reply_data["thinking"], str):
+        reply_data["thinking"] = reply_data["thinking"].replace("—", "-")
+        
     history_manager.add_message(sid, "AI", reply_text, events=reply_data.get("events", []))
     reply_data["session_id"] = sid
     threading.Thread(target=speak, args=(reply_text,), daemon=True).start()
     return jsonify(reply_data)
 
 
-@app.route("/api/voice", methods=["POST"])
-def voice():
-    stop_audio_process()
-    text = listen()
-    if not text:
-        return jsonify({"error": "Did not catch that. Please try again."}), 400
+@app.route("/api/voice_upload", methods=["POST"])
+def voice_upload():
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
         
-    reply_data = brain.process_input(text, session_id=history_manager.current_session_id)
-    reply_text = reply_data.get("reply", "").replace("—", "-")
-    steps = reply_data.get("steps", [])
+    stop_audio_process()
+    audio_file = request.files["audio"]
     
-    threading.Thread(target=speak, args=(reply_text,), daemon=True).start()
-    return jsonify({"text": text, "reply": reply_text, "steps": steps, "events": getattr(brain, "current_events", [])})
+    import tempfile
+    import os
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+        audio_file.save(temp_audio.name)
+        temp_path = temp_audio.name
+        
+    wav_path = temp_path.replace(".webm", ".wav")
+    try:
+        import subprocess
+        subprocess.run(["ffmpeg", "-y", "-i", temp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        from voice import get_whisper_model
+        model = get_whisper_model()
+        if not model:
+            return jsonify({"error": "Voice model not loaded"}), 500
+            
+        print("[Server] Transcribing uploaded voice file...")
+        import wave
+        import numpy as np
+        with wave.open(wav_path, "rb") as w:
+            frames = w.readframes(w.getnframes())
+            # Convert 16-bit PCM to float32
+            audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+            
+        segments, info = model.transcribe(audio_array, beam_size=5, language="en")
+        text = " ".join([segment.text for segment in segments]).strip()
+        print(f"[Server] Uploaded voice transcribed: '{text}'")
+        
+        os.remove(temp_path)
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+            
+        if not text:
+            return jsonify({"error": "Did not catch that. Please try again."}), 400
+            
+        return jsonify({"text": text})
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+        print(f"[Server] Voice upload error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 import time
 
@@ -485,9 +687,18 @@ def get_qr_pair():
         "ip": ip
     })
 
+connected_clients = 0
+
 @socketio.on("connect")
 def handle_connect():
+    global connected_clients
+    connected_clients += 1
     emit("status", {"message": "Connected to Tilux Remote Gateway"})
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    global connected_clients
+    connected_clients = max(0, connected_clients - 1)
 
 @socketio.on("pair_device")
 def handle_pair(data):
@@ -538,8 +749,13 @@ def handle_remote_prompt(data):
             result = brain.process_input(prompt_text, attachments=saved_files)
         except Exception as e:
             result = {"reply": "Remote task failed: " + str(e), "events": []}
+            
+        reply_text = result.get("reply", "").replace("—", "-")
+        result["reply"] = reply_text
+        if "thinking" in result and isinstance(result["thinking"], str):
+            result["thinking"] = result["thinking"].replace("—", "-")
         
-        history_manager.add_message(sid, "AI", result.get("reply", ""), events=result.get("events", []))
+        history_manager.add_message(sid, "AI", reply_text, events=result.get("events", []))
         result["session_id"] = sid
         result["requested_by"] = client_sid
         socketio.emit("agent_reply", result)
@@ -791,6 +1007,18 @@ if __name__ == "__main__":
     
     settings = load_settings()
     firebase_sync.sync_settings(HOST_ID, settings)
+    
+    def preload_models():
+        import time
+        time.sleep(2)
+        try:
+            from voice import get_whisper_model
+            get_whisper_model()
+        except Exception as e:
+            pass
+            
+    import threading
+    threading.Thread(target=preload_models, daemon=True).start()
     
     print(f"Tilux UI Server & Gateway starting for Host [{HOST_ID}] at http://0.0.0.0:8932", flush=True)
 
