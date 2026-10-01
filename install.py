@@ -75,14 +75,32 @@ def install_cloudflared():
 
 def download_offline_engines():
     print("\nDownloading required offline AI models (this may take a few minutes)...")
+    print("Total required data: ~200MB. Cost: $0 (Free).")
     import urllib.request
     import zipfile
+    import sys
     
+    last_reported_percent = -10
+    
+    def progress_hook(filename):
+        def hook(count, block_size, total_size):
+            nonlocal last_reported_percent
+            if total_size > 0:
+                percent = int(count * block_size * 100 / total_size)
+                # Only print every 5% to avoid flooding the UI with Server-Sent Events
+                if percent - last_reported_percent >= 5 or percent == 100:
+                    downloaded_mb = count * block_size / (1024 * 1024)
+                    total_mb = total_size / (1024 * 1024)
+                    print(f"Downloading {filename}: {percent}% ({downloaded_mb:.1f}MB / {total_mb:.1f}MB)", flush=True)
+                    last_reported_percent = percent
+        return hook
+
     # 1. Download Vosk Wake Word Model (40MB)
     if not os.path.exists("vosk-model"):
-        print("Downloading Vosk wake word model...")
+        print("Starting Vosk wake word model download...")
+        last_reported_percent = -10
         vosk_url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
-        urllib.request.urlretrieve(vosk_url, "vosk.zip")
+        urllib.request.urlretrieve(vosk_url, "vosk.zip", reporthook=progress_hook("Vosk Engine"))
         with zipfile.ZipFile("vosk.zip", 'r') as zip_ref:
             zip_ref.extractall(".")
         os.rename("vosk-model-small-en-us-0.15", "vosk-model")
@@ -93,9 +111,10 @@ def download_offline_engines():
     if not os.path.exists("piper-model"):
         os.makedirs("piper-model")
     if not os.path.exists("piper-model/en_US-lessac-medium.onnx"):
-        print("Downloading Piper offline TTS model...")
+        print("Starting Piper offline TTS model download...")
+        last_reported_percent = -10
         base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
-        urllib.request.urlretrieve(base_url, "piper-model/en_US-lessac-medium.onnx")
+        urllib.request.urlretrieve(base_url, "piper-model/en_US-lessac-medium.onnx", reporthook=progress_hook("Piper TTS Data"))
         urllib.request.urlretrieve(base_url + ".json", "piper-model/en_US-lessac-medium.onnx.json")
         print("✅ Piper TTS downloaded.")
 
