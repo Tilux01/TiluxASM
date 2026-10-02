@@ -1008,6 +1008,8 @@ if __name__ == "__main__":
 
     psutil.cpu_percent(interval=0.1)
     usage_tracker.socketio = socketio
+    # Sync wallet balance from Firebase on startup in case of mobile top-up or local wipe
+    threading.Thread(target=usage_tracker.sync_from_cloud, args=(HOST_ID,), daemon=True).start()
     tunnel_manager.start_tunnel(get_host_info)
     firebase_sync.start_heartbeat_loop(get_public_url, get_host_info)
     

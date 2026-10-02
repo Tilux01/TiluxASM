@@ -400,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         chatHistory.appendChild(msgDiv);
-        chatHistory.scrollTop = chatHistory.scrollHeight;
+        smartScrollToBottom(true);
     }
 
     window.scrollToBottom = function(e) {
@@ -414,6 +414,19 @@ document.addEventListener('DOMContentLoaded', () => {
             chatHistory.scrollTo({ top: chatHistory.scrollHeight, behavior: 'smooth' });
         }
     };
+
+    function smartScrollToBottom(force = false) {
+        if (!chatHistory) return;
+        if (force) {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            return;
+        }
+        const distanceFromBottom = chatHistory.scrollHeight - chatHistory.scrollTop - chatHistory.clientHeight;
+        if (distanceFromBottom < 150) {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+    }
+
 
     if (chatHistory) {
         chatHistory.addEventListener('scroll', () => {
@@ -520,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         msgDiv.appendChild(contentDiv);
         chatHistory.appendChild(msgDiv);
-        chatHistory.scrollTop = chatHistory.scrollHeight;
+        smartScrollToBottom(true);
         
         return {
             updateEvents: function(events) {
@@ -578,7 +591,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 });
                 if (didUpdate) {
-                    chatHistory.scrollTop = chatHistory.scrollHeight;
+                    smartScrollToBottom(false);
                 }
             },
             setReply: function(text) {
@@ -603,14 +616,31 @@ document.addEventListener('DOMContentLoaded', () => {
                     textResponse.innerHTML = formatMarkdownAndProxyImages(text);
                     wrapGeneratedImages(textResponse);
                 }
-                chatHistory.scrollTop = chatHistory.scrollHeight;
+                smartScrollToBottom(false);
             },
             setError: function(text) {
+                const container = document.getElementById(`events-container-${loadingId}`);
+                if (container) {
+                    const runningEls = container.querySelectorAll('.event-running');
+                    runningEls.forEach(el => {
+                        const parent = el.closest('.ai-event');
+                        if (parent && parent.dataset.completed !== "true") {
+                            parent.remove();
+                        }
+                    });
+
+                    if (container.children.length === 0) {
+                        container.style.display = 'none';
+                    } else {
+                        container.style.display = '';
+                    }
+                }
                 const textResponse = document.getElementById(`text-response-${loadingId}`);
                 if (textResponse) {
                     textResponse.innerHTML = formatMarkdownAndProxyImages(text);
                     wrapGeneratedImages(textResponse);
                 }
+                smartScrollToBottom(false);
             }
         };
     }

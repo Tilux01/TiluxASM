@@ -15,19 +15,23 @@ def enable_autostart(app_dir=None):
         os.makedirs(autostart_dir, exist_ok=True)
         desktop_file = os.path.join(autostart_dir, "tilux-backend.desktop")
         
+        # [DEVELOPMENT MODE] Commented out to prevent forcing autostart during testing.
+        # Uncomment the block below for Production.
+        '''
         content = f"""[Desktop Entry]
-Type=Application
-Name=Tilux ASM Backend
-Comment=Tilux AI Assistant SocketIO & Remote Gateway
-Exec="{python_exe}" "{server_script}"
-StartupNotify=false
-Terminal=false
-X-GNOME-Autostart-enabled=true
-"""
+        Type=Application
+        Name=Tilux ASM Backend
+        Comment=Tilux AI Assistant SocketIO & Remote Gateway
+        Exec="{python_exe}" "{server_script}"
+        StartupNotify=false
+        Terminal=false
+        X-GNOME-Autostart-enabled=true
+        """
         with open(desktop_file, "w") as f:
             f.write(content)
         os.chmod(desktop_file, 0o755)
         print(f"Linux autostart enabled: {desktop_file}")
+        '''
         return desktop_file
 
     elif "windows" in system_type:

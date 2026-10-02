@@ -84,6 +84,31 @@ class FirebaseSync:
             # print(f"[Firebase Usage Sync Error] {e}")
             return False
 
+    def fetch_usage_and_billing(self, host_id):
+        try:
+            # Prefer pulling directly from the host's usage node if available
+            if host_id:
+                endpoint = f"{self.db_url}/hosts/{host_id}/usage.json"
+                req = urllib.request.Request(endpoint, method='GET')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    if resp.status == 200:
+                        data = json.loads(resp.read().decode('utf-8'))
+                        if data and isinstance(data, dict):
+                            return data
+            
+            # Fallback to user node
+            user_slug = self._sanitize_user_id(self.active_user)
+            user_endpoint = f"{self.db_url}/users/{user_slug}/billing.json"
+            req_u = urllib.request.Request(user_endpoint, method='GET')
+            with urllib.request.urlopen(req_u, timeout=5) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    if data and isinstance(data, dict):
+                        return data
+        except Exception as e:
+            pass
+        return None
+
     def sync_tunnel_url(self, tunnel_url, user_id=None, auth_token=None, pairing_token=None, host_id=None):
         if host_id:
             return self.sync_host_state(host_id, pairing_token, tunnel_url)
