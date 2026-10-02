@@ -30,6 +30,7 @@ jobs:
           python -m pip install --upgrade pip nuitka
           pip install -r requirements.txt
           python -m nuitka --module brain.py --enable-plugin=anti-bloat
+          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
           python -m nuitka --module credentials.py --enable-plugin=anti-bloat
           python -m nuitka --module actions.py --enable-plugin=anti-bloat
           python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
@@ -47,6 +48,7 @@ jobs:
           python -m pip install --upgrade pip nuitka
           pip install -r requirements.txt
           python -m nuitka --module brain.py --enable-plugin=anti-bloat
+          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
           python -m nuitka --module credentials.py --enable-plugin=anti-bloat
           python -m nuitka --module actions.py --enable-plugin=anti-bloat
           python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
@@ -64,6 +66,7 @@ jobs:
           python -m pip install --upgrade pip nuitka
           pip install -r requirements.txt
           python -m nuitka --module brain.py --enable-plugin=anti-bloat
+          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
           python -m nuitka --module credentials.py --enable-plugin=anti-bloat
           python -m nuitka --module actions.py --enable-plugin=anti-bloat
           python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
@@ -81,6 +84,7 @@ jobs:
           python -m pip install --upgrade pip nuitka
           pip install -r requirements.txt
           python -m nuitka --module brain.py --enable-plugin=anti-bloat
+          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
           python -m nuitka --module credentials.py --enable-plugin=anti-bloat
           python -m nuitka --module actions.py --enable-plugin=anti-bloat
           python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat

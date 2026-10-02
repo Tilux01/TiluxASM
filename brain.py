@@ -595,8 +595,21 @@ class Brain:
             self._repair_history()
             import os
             
+            # Dynamically inject the massive Dev Rules to save tokens unless requested
+            t_lower = text.lower()
+            coding_keywords = ["build", "code", "project", "software", "frontend", "react", "html", "css", "js", "develop", "app", "website", "design"]
+            asks_coding = any(k in t_lower for k in coding_keywords)
+            
+            user_text_payload = text
+            if asks_coding:
+                try:
+                    from sfdcr import DEV_RULES
+                    user_text_payload = f"{DEV_RULES}\n\nUSER REQUEST:\n{text}"
+                except Exception:
+                    pass
+
             has_active_image = False
-            user_content = [{"type": "text", "text": text}]
+            user_content = [{"type": "text", "text": user_text_payload}]
             image_files = []
             
             # Process attachments
@@ -677,6 +690,26 @@ class Brain:
                 self.history.append({"role": "user", "content": user_content})
             else:
                 self.history.append({"role": "user", "content": user_content[0]["text"]})
+                
+            # --- SLIDING WINDOW CONTEXT MANAGEMENT ---
+            # Max active memory messages to carry before truncating (saves tokens). 
+            # Older messages remain persistently saved in chat_sessions.json.
+            MAX_MEMORY_MESSAGES = 10 
+            
+            if len(self.history) > MAX_MEMORY_MESSAGES + 1:
+                sys_prompt = self.history[0]
+                recent = self.history[-MAX_MEMORY_MESSAGES:]
+                
+                # Safely truncate: Never start the sliding window in the middle of a tool execution loop.
+                # Find the first clean 'user' message to start the new truncated context.
+                while len(recent) > 0:
+                    r = getattr(recent[0], "role", None) if not isinstance(recent[0], dict) else recent[0].get("role")
+                    if r == "user":
+                        break
+                    recent.pop(0)
+                    
+                self.history = [sys_prompt] + recent
+            # -----------------------------------------
             
             loop_count = 0
             max_loops = 15
