@@ -30,3 +30,6 @@ server.dist/
 server.build/
 tilux-client/dist/
 .git_disabled_backup/
+
+sfdcr.py
+sfdcr.c
