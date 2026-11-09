@@ -52,8 +52,10 @@ class FirebaseSync:
         if not host_id or not settings:
             return False
         try:
+            # Strip sensitive local PC credentials from cloud sync
+            safe_settings = {k: v for k, v in settings.items() if k not in ("sudo_password", "password")}
             endpoint = f"{self.db_url}/hosts/{host_id}/settings.json"
-            data = json.dumps(settings).encode('utf-8')
+            data = json.dumps(safe_settings).encode('utf-8')
             req = urllib.request.Request(endpoint, data=data, method='PATCH')
             req.add_header('Content-Type', 'application/json')
             urllib.request.urlopen(req, timeout=5)
@@ -86,7 +88,20 @@ class FirebaseSync:
 
     def fetch_usage_and_billing(self, host_id):
         try:
-            # Prefer pulling directly from the host's usage node if available
+            # Prefer pulling directly from the user node for accurate global wallet balance
+            user_slug = self._sanitize_user_id(self.active_user)
+            user_endpoint = f"{self.db_url}/users/{user_slug}/billing.json"
+            req_u = urllib.request.Request(user_endpoint, method='GET')
+            try:
+                with urllib.request.urlopen(req_u, timeout=5) as resp:
+                    if resp.status == 200:
+                        data = json.loads(resp.read().decode('utf-8'))
+                        if data and isinstance(data, dict):
+                            return data
+            except Exception:
+                pass
+                
+            # Fallback to host's usage node if user node fails
             if host_id:
                 endpoint = f"{self.db_url}/hosts/{host_id}/usage.json"
                 req = urllib.request.Request(endpoint, method='GET')
@@ -95,16 +110,6 @@ class FirebaseSync:
                         data = json.loads(resp.read().decode('utf-8'))
                         if data and isinstance(data, dict):
                             return data
-            
-            # Fallback to user node
-            user_slug = self._sanitize_user_id(self.active_user)
-            user_endpoint = f"{self.db_url}/users/{user_slug}/billing.json"
-            req_u = urllib.request.Request(user_endpoint, method='GET')
-            with urllib.request.urlopen(req_u, timeout=5) as resp:
-                if resp.status == 200:
-                    data = json.loads(resp.read().decode('utf-8'))
-                    if data and isinstance(data, dict):
-                        return data
         except Exception as e:
             pass
         return None

@@ -40,12 +40,20 @@ def enable_autostart(app_dir=None):
             startup_folder = os.path.join(appdata, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
             vbs_file = os.path.join(startup_folder, "tilux-backend.vbs")
             win_python = os.path.join(app_dir, "venv", "Scripts", "pythonw.exe")
+            if not os.path.exists(win_python):
+                win_python = os.path.join(app_dir, "venv", "Scripts", "python.exe")
+            if not os.path.exists(win_python):
+                win_python = sys.executable
             server_script = os.path.join(app_dir, "server.py")
-            content = f'Set WshShell = CreateObject("WScript.Shell")\nWshShell.Run "\"{win_python}\" \"{server_script}\"", 0, False'
-            with open(vbs_file, "w") as f:
-                f.write(content)
-            print(f"Windows autostart enabled: {vbs_file}")
-            return vbs_file
+            content = f'Set WshShell = CreateObject("WScript.Shell")\r\nWshShell.Run """{win_python}"" ""{server_script}""", 0, False\r\n'
+            try:
+                with open(vbs_file, "w") as f:
+                    f.write(content)
+                print(f"Windows autostart enabled: {vbs_file}")
+                return vbs_file
+            except Exception as e:
+                print(f"Notice: Could not write autostart VBS: {e}")
+                return None
 
     elif "darwin" in system_type:
         python_exe = os.path.join(app_dir, "venv", "bin", "python")

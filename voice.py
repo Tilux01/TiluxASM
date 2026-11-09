@@ -154,83 +154,159 @@ def speak(text: str):
                     if 'p2' in locals() and p2.poll() is None:
                         p2.terminate()
             else:
-                # Piper TTS Offline Mode
+                # Piper TTS Offline In-Memory Streaming Mode
                 try:
-                    import platform
-                    piper_bin = "./venv/bin/piper" if platform.system() != "Windows" else ".\\venv\\Scripts\\piper.exe"
-                    
-                    model_path = tts_voice
-                    if not os.path.exists(model_path):
-                        import urllib.request
-                        print(f"[Voice] Downloading requested voice model: {model_path}...")
-                        try:
-                            # Extract speaker from path (e.g. 'piper-model/en_US-amy-medium.onnx' -> 'amy')
-                            speaker = model_path.split("-")[1]
-                            quality = model_path.split("-")[2].replace(".onnx", "")
-                            base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
-                            os.makedirs("piper-model", exist_ok=True)
-                            urllib.request.urlretrieve(base_url, model_path)
-                            urllib.request.urlretrieve(base_url + ".json", model_path + ".json")
-                            print(f"[Voice] Successfully downloaded {speaker} voice!")
-                        except Exception as e:
-                            print(f"[Voice] Failed to download {model_path}: {e}")
-                            model_path = "piper-model/en_US-lessac-medium.onnx"
-                        
-                    piper_proc = subprocess.Popen(
-                        [piper_bin, "--model", model_path, "--output_raw"],
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL
-                    )
-                    
-                    ffplay_proc = subprocess.Popen(
-                        ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-f", "s16le", "-ar", "22050", "-ac", "1", "-i", "-"],
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL
-                    )
-                    
-                    piper_proc.stdin.write(clean_text.encode("utf-8"))
-                    piper_proc.stdin.close()
-                    
-                    while True:
-                        chunk = piper_proc.stdout.read(4096)
-                        if not chunk:
-                            break
-                        
-                        import sys
-                        if "server" in sys.modules:
-                            srv = sys.modules["server"]
-                            if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
-                                piper_proc.terminate()
-                                ffplay_proc.terminate()
+                    voice_obj = get_piper_voice(tts_voice)
+                    if voice_obj:
+                        global _active_audio_proc
+                        sample_rate = str(getattr(voice_obj.config, "sample_rate", 22050))
+                        ffplay_proc = subprocess.Popen(
+                            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-f", "s16le", "-ar", sample_rate, "-ac", "1", "-i", "-"],
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                        _active_audio_proc = ffplay_proc
+                        for audio_chunk in voice_obj.synthesize(clean_text):
+                            import sys
+                            if "server" in sys.modules:
+                                srv = sys.modules["server"]
+                                if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
+                                    try:
+                                        ffplay_proc.kill()
+                                    except:
+                                        pass
+                                    _active_audio_proc = None
+                                    return
+                            try:
+                                ffplay_proc.stdin.write(audio_chunk.audio_int16_bytes)
+                                ffplay_proc.stdin.flush()
+                            except:
                                 break
-                                
                         try:
-                            ffplay_proc.stdin.write(chunk)
-                            ffplay_proc.stdin.flush()
-                        except:
-                            break
-                            
-                    ffplay_proc.stdin.close()
-                    ffplay_proc.wait()
-                    piper_proc.wait()
+                            ffplay_proc.stdin.close()
+                        except (BrokenPipeError, OSError):
+                            pass
+                        
+                        # Non-blocking poll so we can abort instantly if window closes or user cancels
+                        import time
+                        while ffplay_proc.poll() is None:
+                            import sys
+                            if "server" in sys.modules:
+                                srv = sys.modules["server"]
+                                if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
+                                    try:
+                                        ffplay_proc.kill()
+                                    except:
+                                        pass
+                                    break
+                            time.sleep(0.04)
+                        _active_audio_proc = None
+                    else:
+                        speak_os_fallback(clean_text)
                 except Exception as e:
-                    print(f"[Voice] Piper TTS error: {e}")
-                    if 'piper_proc' in locals() and piper_proc.poll() is None:
-                        piper_proc.terminate()
-                    if 'ffplay_proc' in locals() and ffplay_proc.poll() is None:
-                        ffplay_proc.terminate()
+                    print(f"[Voice] Piper TTS error: {e}. Falling back to OS speech...")
+                    terminate_active_audio()
+                    speak_os_fallback(clean_text)
                 
         asyncio.run(_stream_play())
     except Exception as e:
-        print(f"[Voice] Speak error: {e}")
+        print(f"[Voice] Speak error: {e}. Falling back to OS speech...")
+        speak_os_fallback(clean_text)
+
+def speak_os_fallback(text: str) -> bool:
+    """Fallback to native OS speech (spd-say / pyttsx3 / say / SAPI)."""
+    if not text or not text.strip():
+        return False
+    try:
+        import platform, subprocess
+        sys_name = platform.system()
+        if sys_name == "Darwin":
+            res = subprocess.run(["say", text], check=False)
+            return res.returncode == 0
+        elif sys_name == "Linux":
+            res = subprocess.run(["spd-say", "-t", "female2", "-r", "10", text], capture_output=True)
+            if res.returncode == 0:
+                return True
+        import pyttsx3
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+        return True
+    except Exception as e:
+        print(f"[Voice] OS speech fallback error: {e}")
+        return False
 
 def generate_audio_buffer(text: str, voice: str, speed: str) -> bytes:
     """Generates TTS audio and returns raw MP3 bytes (no playback)."""
     if not text.strip():
         return b""
     return _generate_audio_sync(text, voice, speed)
+
+def terminate_active_audio():
+    """Immediately stops all audio playback and child speech processes."""
+    global _active_audio_proc
+    if _active_audio_proc is not None:
+        try:
+            _active_audio_proc.kill()
+        except Exception:
+            pass
+        _active_audio_proc = None
+    import platform, subprocess
+    if platform.system() == "Windows":
+        subprocess.run("taskkill /F /IM ffplay.exe /T 2>NUL || exit /b 0", shell=True)
+    else:
+        subprocess.run("pkill -9 ffplay 2>/dev/null || killall -9 ffplay 2>/dev/null || true", shell=True)
+        subprocess.run("spd-say -C 2>/dev/null || true", shell=True)
+        subprocess.run("pkill -9 spd-say 2>/dev/null || killall -9 spd-say 2>/dev/null || true", shell=True)
+
+def get_voice_settings():
+    """Reads settings.json directly without relying on external module state."""
+    settings = {"tts_enabled": True, "tts_voice": "piper-model/en_US-lessac-medium.onnx", "tts_speed": "+20%"}
+    if os.path.exists("settings.json"):
+        try:
+            with open("settings.json", "r") as f:
+                settings.update(json.load(f))
+        except Exception:
+            pass
+    return settings
+
+_cached_piper_voice = None
+_cached_piper_model_path = None
+
+def get_piper_voice(model_path: str = None):
+    global _cached_piper_voice, _cached_piper_model_path
+    if model_path is None:
+        settings = get_voice_settings()
+        model_path = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
+        
+    if not os.path.exists(model_path):
+        import urllib.request
+        print(f"[Voice] Downloading requested voice model: {model_path}...")
+        try:
+            speaker = model_path.split("-")[1]
+            quality = model_path.split("-")[2].replace(".onnx", "")
+            base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
+            os.makedirs("piper-model", exist_ok=True)
+            urllib.request.urlretrieve(base_url, model_path)
+            urllib.request.urlretrieve(base_url + ".json", model_path + ".json")
+            print(f"[Voice] Successfully downloaded {speaker} voice!")
+        except Exception as e:
+            print(f"[Voice] Failed to download {model_path}: {e}")
+            model_path = "piper-model/en_US-lessac-medium.onnx"
+
+    if _cached_piper_voice is None or _cached_piper_model_path != model_path:
+        try:
+            from piper import PiperVoice
+            print(f"[Voice] Loading Piper ONNX voice into RAM ({model_path})...")
+            _cached_piper_voice = PiperVoice.load(model_path)
+            _cached_piper_model_path = model_path
+            print("[Voice] Piper ONNX voice loaded successfully!")
+        except Exception as e:
+            print(f"[Voice] Error loading in-memory Piper voice: {e}")
+            _cached_piper_voice = None
+            
+    return _cached_piper_voice
 
 _whisper_model = None
 
@@ -247,7 +323,20 @@ def get_whisper_model():
             print(f"[Voice] Failed to load Whisper: {e}")
     return _whisper_model
 
-def listen() -> str:
+def init_voice_models():
+    """Preloads Whisper and Piper into RAM in background so first wake word is instant."""
+    import threading
+    def _loader():
+        try:
+            get_whisper_model()
+            settings = get_voice_settings()
+            tts_voice = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
+            get_piper_voice(tts_voice)
+        except Exception as e:
+            print(f"[Voice] Model preload notice: {e}")
+    threading.Thread(target=_loader, daemon=True).start()
+
+def listen(on_recording_done=None) -> str:
     """Listens to the microphone using VAD and returns the transcribed text."""
     model = get_whisper_model()
     if not model:
@@ -258,17 +347,16 @@ def listen() -> str:
     
     audio_buffer = []
     
-    # Simple VAD (Voice Activity Detection) Parameters
     import numpy as np
     import sounddevice as sd
     
     SILENCE_THRESHOLD = 0.015  # Amplitude threshold
-    SILENCE_DURATION = 0.7     # Seconds of silence to stop recording
+    SILENCE_DURATION = 0.55    # Seconds of silence to stop recording (fast responsive cutoff)
     MAX_DURATION = 15.0        # Max seconds to record
     
-    frames_per_chunk = 4000    # 0.25 seconds per chunk at 16kHz
-    max_silence_chunks = int(SILENCE_DURATION / 0.25)
-    max_chunks = int(MAX_DURATION / 0.25)
+    frames_per_chunk = 2000    # 0.125 seconds per chunk at 16kHz for responsive VAD
+    max_silence_chunks = int(SILENCE_DURATION / 0.125)
+    max_chunks = int(MAX_DURATION / 0.125)
     
     silence_chunks_count = 0
     has_spoken = False
@@ -292,6 +380,12 @@ def listen() -> str:
                         
                     if has_spoken and silence_chunks_count >= max_silence_chunks:
                         print("[Voice] Silence detected. Stopping recording.")
+                        # Immediately notify callback so UI switches to 'Processing...' with 0 delay!
+                        if on_recording_done:
+                            try:
+                                on_recording_done()
+                            except Exception:
+                                pass
                         break
                         
         if not has_spoken:
@@ -301,7 +395,13 @@ def listen() -> str:
         print("[Voice] Sending audio to Faster-Whisper...")
         audio_np = np.concatenate(audio_buffer)
         
-        segments, info = model.transcribe(audio_np, beam_size=5, language="en")
+        segments, info = model.transcribe(
+            audio_np, 
+            beam_size=1, 
+            best_of=1, 
+            condition_on_previous_text=False, 
+            language="en"
+        )
         text = " ".join([segment.text for segment in segments]).strip()
         print(f"[Voice] Faster-whisper transcription complete: '{text}'")
         return text

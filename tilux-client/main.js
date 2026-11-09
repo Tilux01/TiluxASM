@@ -1,4 +1,7 @@
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, nativeImage, Menu, shell } = require('electron');
+
+// Completely disable Electron default application menu across all windows
+Menu.setApplicationMenu(null);
 const path = require('path');
 const fs = require('fs');
 const { spawn, exec } = require('child_process');
@@ -20,6 +23,26 @@ function copyDirectory(src, dest) {
             fs.copyFileSync(srcPath, destPath);
         }
     }
+}
+
+function findSystemPython() {
+    if (process.platform !== 'win32') {
+        return 'python3';
+    }
+    const candidates = [
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Python312', 'python.exe'),
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Python311', 'python.exe'),
+        'C:\\Python312\\python.exe',
+        'C:\\Python311\\python.exe'
+    ];
+    for (const cand of candidates) {
+        if (fs.existsSync(cand)) {
+            return `"${cand}"`;
+        }
+    }
+    return 'python';
 }
 
 async function setupAndRunBackend() {
@@ -62,8 +85,8 @@ async function setupAndRunBackend() {
             }
             
             // Create venv and pip install
-            await new Promise((resolve, reject) => {
-                const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+            try {
+                const pythonCmd = findSystemPython();
                 if (mainWindow) mainWindow.webContents.send('installation-status', 'Creating virtual environment (this may take a minute)...');
                 
                 function runSpawn(cmd, args, cwdStr) {
@@ -89,25 +112,18 @@ async function setupAndRunBackend() {
                     });
                 }
                 
-                runSpawn(pythonCmd, ['-m', 'venv', 'venv'], backendCwd)
-                    .then(() => {
-                        const pyCmd = process.platform === 'win32' ? path.join('venv', 'Scripts', 'python.exe') : path.join('.', 'venv', 'bin', 'python3');
-                        if (mainWindow) mainWindow.webContents.send('installation-status', 'Running system setup (FFmpeg, OCR, Dependencies)...');
-                        return runSpawn(pyCmd, ['install.py'], backendCwd);
-                    })
-                    .then(() => {
-                        fs.writeFileSync(setupCompleteFile, 'done');
-                        resolve();
-                    })
-                    .catch(err => {
-                        console.error(err);
-                        if (mainWindow) mainWindow.webContents.send('installation-status', 'Installation Error: ' + err.message);
-                        reject(err);
-                    });
-            });
-            console.log('Setup complete.');
-            if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup complete! Booting AI...');
-            await new Promise(r => setTimeout(r, 1000));
+                await runSpawn(pythonCmd, ['-m', 'venv', 'venv'], backendCwd);
+                const pyCmd = process.platform === 'win32' ? path.join('venv', 'Scripts', 'python.exe') : path.join('.', 'venv', 'bin', 'python3');
+                if (mainWindow) mainWindow.webContents.send('installation-status', 'Running system setup (Dependencies & Engines)...');
+                await runSpawn(pyCmd, ['install.py'], backendCwd);
+                fs.writeFileSync(setupCompleteFile, 'done');
+                console.log('Setup complete.');
+                if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup complete! Booting AI...');
+            } catch (err) {
+                console.error('Setup error:', err);
+                if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup Notice: ' + err.message + ' (Continuing to launch...)');
+            }
+            await new Promise(r => setTimeout(r, 1200));
         }
     } else {
         // Dev mode
@@ -116,6 +132,10 @@ async function setupAndRunBackend() {
         pyExe = process.platform === 'win32' ? 
             path.join(backendCwd, 'venv', 'Scripts', 'python.exe') : 
             path.join(backendCwd, 'venv', 'bin', 'python3');
+            
+        if (!fs.existsSync(pyExe)) {
+            pyExe = process.platform === 'win32' ? 'python' : 'python3';
+        }
     }
     
     const http = require('http');
@@ -135,26 +155,45 @@ async function setupAndRunBackend() {
     const isRunning = await checkBackendRunning();
     if (!isRunning) {
         const spawnArgs = script ? [script] : [];
-        pyProc = spawn(pyExe, spawnArgs, { cwd: backendCwd });
-        console.log('Python backend spawned successfully.');
-        pyProc.stdout.on('data', (data) => {
-            console.log(`Python: ${data.toString()}`);
-        });
-        pyProc.stderr.on('data', (data) => {
-            console.error(`Python Error: ${data.toString()}`);
-        });
+        try {
+            pyProc = spawn(pyExe, spawnArgs, { cwd: backendCwd, shell: process.platform === 'win32' });
+            console.log('Python backend spawned successfully.');
+            pyProc.stdout.on('data', (data) => {
+                console.log(`Python: ${data.toString()}`);
+            });
+            pyProc.stderr.on('data', (data) => {
+                console.error(`Python Error: ${data.toString()}`);
+            });
+            pyProc.on('error', (err) => {
+                console.error('Failed to spawn Python process:', err);
+            });
+        } catch (e) {
+            console.error('Process spawn exception:', e);
+        }
     } else {
         console.log('Python backend is already running on port 8932. Reusing active process.');
     }
 
-    // Clean & snappy splash transition (1.4 seconds)
-    setTimeout(() => {
-        if (mainWindow) {
-            mainWindow.webContents.session.clearCache().then(() => {
-                mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
-            });
+    // Wait until backend is healthy and responding on port 8932 (up to 25 seconds)
+    const startTime = Date.now();
+    let backendReady = false;
+    while (Date.now() - startTime < 25000) {
+        if (await checkBackendRunning()) {
+            backendReady = true;
+            break;
         }
-    }, 1400);
+        await new Promise(r => setTimeout(r, 600));
+    }
+    
+    if (!backendReady) {
+        console.warn('Backend did not respond on port 8932 within timeout. Loading UI...');
+    }
+
+    if (mainWindow) {
+        mainWindow.webContents.session.clearCache().then(() => {
+            mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+        });
+    }
 }
 
 function exitPythonProcess() {
@@ -165,6 +204,9 @@ function exitPythonProcess() {
 }
 
 function createWindow () {
+    const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+    const iconPath = path.join(__dirname, 'src', iconName);
+    const appIcon = nativeImage.createFromPath(iconPath);
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
@@ -173,11 +215,47 @@ function createWindow () {
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: true, // required for ipcRenderer in loading.html
-            contextIsolation: false
+            contextIsolation: false,
+            devTools: false // Completely disables DevTools / console
         },
         autoHideMenuBar: true,
         title: "Tilux Assistant",
-        icon: path.join(__dirname, 'src', 'icon.png')
+        icon: !appIcon.isEmpty() ? appIcon : iconPath
+    });
+
+    // Permanently remove window menu bar (prevents File/Edit/View/Help from popping up)
+    mainWindow.removeMenu();
+    mainWindow.setMenu(null);
+
+    if (!appIcon.isEmpty() && typeof mainWindow.setIcon === 'function') {
+        mainWindow.setIcon(appIcon);
+    }
+
+    // Intercept and block DevTools and view-source keyboard shortcuts
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        const key = (input.key || '').toLowerCase();
+        const isDevToolsShortcut = 
+            key === 'f12' ||
+            (input.control && input.shift && (key === 'i' || key === 'j' || key === 'c')) ||
+            (input.meta && input.alt && (key === 'i' || key === 'j' || key === 'c')) ||
+            (input.control && key === 'u');
+        
+        if (isDevToolsShortcut) {
+            event.preventDefault();
+        }
+    });
+
+    // Failsafe: if DevTools somehow opens, close it immediately
+    mainWindow.webContents.on('devtools-opened', () => {
+        mainWindow.webContents.closeDevTools();
+    });
+
+    // Open any external web links in system browser, never inside the Electron window
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url && (url.startsWith('http:') || url.startsWith('https:'))) {
+            shell.openExternal(url);
+        }
+        return { action: 'deny' };
     });
     
     // Set a blank background while loading
@@ -185,6 +263,7 @@ function createWindow () {
 }
 
 app.whenReady().then(async () => {
+    app.setAppUserModelId("com.tilux.asm");
     const isWidgetMode = process.argv.includes('--widget');
     if (isWidgetMode) {
         // We still need to call the IPC handler logic we defined below, so we just trigger it internally
@@ -238,6 +317,9 @@ let wakeWindow = null;
 
 function createWakeWindow() {
     if (wakeWindow) return;
+    const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+    const iconPath = path.join(__dirname, 'src', iconName);
+    const appIcon = nativeImage.createFromPath(iconPath);
     
     // Create a frameless, transparent window for the glowing orb
     wakeWindow = new BrowserWindow({
@@ -248,12 +330,20 @@ function createWakeWindow() {
         alwaysOnTop: true,
         hasShadow: false,
         resizable: false,
+        icon: !appIcon.isEmpty() ? appIcon : iconPath,
         focusable: true,
         skipTaskbar: true,
         webPreferences: {
             nodeIntegration: false,
-            contextIsolation: true
+            contextIsolation: true,
+            devTools: false
         }
+    });
+
+    wakeWindow.removeMenu();
+    wakeWindow.setMenu(null);
+    wakeWindow.webContents.on('devtools-opened', () => {
+        wakeWindow.webContents.closeDevTools();
     });
 
     wakeWindow.loadFile(path.join(__dirname, 'src', 'wake_popup.html'));
@@ -271,22 +361,21 @@ function createWakeWindow() {
         height: 250
     });
     
-    wakeWindow.show(); // Show WITH focus so it can detect blur
+    wakeWindow.show();
     
-    wakeWindow.on('blur', () => {
-        // User clicked outside! Abort the AI voice and processing!
+    wakeWindow.on('closed', () => {
+        wakeWindow = null;
         try {
-            const req = net.request({ method: 'POST', url: 'http://127.0.0.1:8932/api/stop' });
-            req.on('response', () => {
-                if (process.argv.includes('--widget')) app.quit();
+            const http = require('http');
+            const req = http.request({
+                hostname: '127.0.0.1',
+                port: 8932,
+                path: '/api/stop',
+                method: 'POST'
             });
-            req.on('error', () => {
-                if (process.argv.includes('--widget')) app.quit();
-            });
+            req.on('error', () => {});
             req.end();
-        } catch(e) {
-            if (process.argv.includes('--widget')) app.quit();
-        }
+        } catch(e) {}
     });
 }
 

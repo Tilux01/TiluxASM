@@ -32,13 +32,28 @@ import logging
 import psutil
 import subprocess
 from brain import Brain
-from voice import speak, listen
+from voice import speak, listen, init_voice_models
 from memory import load_memory
 import wake_word
 
-# Werkzeug logging enabled for debugging
+# Preload voice models into RAM in background so voice response is instantaneous
+init_voice_models()
+
+# Werkzeug logging suppressed to hide background polling spam
 log = logging.getLogger('werkzeug')
-log.setLevel(logging.INFO)
+log.setLevel(logging.ERROR)
+
+import json
+# Force reset God Mode to OFF on every startup to ensure default safe state
+if os.path.exists("settings.json"):
+    try:
+        with open("settings.json", "r") as f:
+            settings_data = json.load(f)
+        settings_data["god_mode"] = False
+        with open("settings.json", "w") as f:
+            json.dump(settings_data, f, indent=4)
+    except Exception:
+        pass
 
 app = Flask(__name__)
 CORS(app) # Allow cross-origin requests from the Electron app
@@ -81,17 +96,38 @@ def save_settings(data):
 WAKE_WORD_TRIGGERED = False
 last_ui_poll_time = 0
 
-WIDGET_STATE = {"main_text": "Listening...", "sub_text": ""}
+WIDGET_STATE = {"main_text": "Listening...", "sub_text": "", "speak_text": "", "speak_id": 0}
+WIDGET_CLIENT_CAPS = {"browser_tts": False}
+WIDGET_SPEECH_EVENT = threading.Event()
+
+@app.route("/api/widget_capabilities", methods=["POST"])
+def widget_capabilities_endpoint():
+    global WIDGET_CLIENT_CAPS
+    try:
+        data = request.json or {}
+        WIDGET_CLIENT_CAPS["browser_tts"] = bool(data.get("browser_tts", False))
+    except Exception:
+        pass
+    return jsonify({"status": "ok", "capabilities": WIDGET_CLIENT_CAPS})
+
+@app.route("/api/widget_speech_done", methods=["POST"])
+def widget_speech_done_endpoint():
+    WIDGET_SPEECH_EVENT.set()
+    return jsonify({"status": "ok"})
 
 @app.route("/api/widget_state", methods=["GET"])
 def widget_state_endpoint():
     # Merge the current brain status into the sub_text if it's thinking
-    sub = WIDGET_STATE["sub_text"]
-    if WIDGET_STATE["main_text"] != "Listening...":
+    sub = WIDGET_STATE.get("sub_text", "")
+    if WIDGET_STATE.get("main_text") != "Listening...":
         sub = getattr(brain, "current_status", sub)
     return jsonify({
-        "main_text": WIDGET_STATE["main_text"],
-        "sub_text": sub
+        "main_text": WIDGET_STATE.get("main_text", ""),
+        "sub_text": sub,
+        "speak_text": WIDGET_STATE.get("speak_text", ""),
+        "speak_id": WIDGET_STATE.get("speak_id", 0),
+        "is_speaking": WIDGET_STATE.get("is_speaking", False),
+        "reply_text": WIDGET_STATE.get("reply_text", "")
     })
 
 current_widget_proc = None
@@ -101,10 +137,6 @@ def _on_wake_word():
     WAKE_WORD_TRIGGERED = True
     socketio.emit("wake_word_detected", {"status": "listening"})
     
-    import time
-    if time.time() - last_ui_poll_time < 3:
-        return
-        
     # Abort any ongoing AI generation or speech instantly!
     brain.abort_flag = True
     stop_audio_process()
@@ -114,10 +146,20 @@ def _on_wake_word():
     settings = load_settings()
     exe_path = settings.get("frontend_executable", "npm")
     
-    WIDGET_STATE = {"main_text": "Listening...", "sub_text": ""}
+    WIDGET_STATE = {
+        "main_text": "Listening...",
+        "sub_text": "",
+        "speak_text": "",
+        "speak_id": 0,
+        "is_speaking": False,
+        "reply_text": ""
+    }
     
     if current_widget_proc is None or current_widget_proc.poll() is not None:
-        if exe_path == "npm":
+        electron_bin = os.path.join("tilux-client", "node_modules", ".bin", "electron")
+        if os.path.exists(electron_bin):
+            current_widget_proc = subprocess.Popen([electron_bin, "./tilux-client", "--widget"])
+        elif exe_path == "npm":
             current_widget_proc = subprocess.Popen(["npm", "start", "--", "--widget"], cwd="tilux-client")
         else:
             current_widget_proc = subprocess.Popen([exe_path, "--widget"])
@@ -139,14 +181,21 @@ def _on_wake_word():
             WIDGET_STATE["sub_text"] = "Speak your command..."
             print("[Server] Opening microphone to listen for command...")
             import time
-            time.sleep(0.2) # Small buffer to ensure wake word engine has fully released ALSA mic lock
-            text = listen()
+            time.sleep(0.15) # Small buffer to ensure wake word engine has fully released ALSA mic lock
+            
+            def on_speech_captured():
+                global WIDGET_STATE
+                WIDGET_STATE["main_text"] = "Processing..."
+                WIDGET_STATE["sub_text"] = "Thinking..."
+                print("[Server] User speech captured. Switched to Processing immediately.")
+
+            text = listen(on_recording_done=on_speech_captured)
             print(f"[Server] Voice capture complete. Recognized text: '{text}'")
             
             # Change state immediately so UI feels snappy
             if text:
                 WIDGET_STATE["main_text"] = f'"{text}"'
-                WIDGET_STATE["sub_text"] = "Processing..."
+                WIDGET_STATE["sub_text"] = "Generating answer..."
                 
             # INSTANTLY release the mic so the user can interrupt the AI while it thinks/speaks!
             import wake_word
@@ -166,46 +215,68 @@ def _on_wake_word():
                 reply_text = reply_data.get("reply", "")
                 
                 if reply_text:
-                    import re, threading, time
+                    import re, time
                     clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
                     WIDGET_STATE["sub_text"] = ""
-                    WIDGET_STATE["main_text"] = ""
+                    WIDGET_STATE["reply_text"] = reply_text
+                    WIDGET_STATE["is_speaking"] = True
+                    WIDGET_STATE["speak_id"] = time.time()
                     
-                    def run_speech():
+                    if WIDGET_CLIENT_CAPS.get("browser_tts", False):
+                        # Browser speaks directly with native word boundary sync!
+                        WIDGET_SPEECH_EVENT.clear()
+                        WIDGET_STATE["speak_text"] = reply_text
+                        word_count = len(clean_widget_text.split())
+                        timeout_sec = max(5.0, (word_count * 0.35) + 3.0)
+                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                    else:
+                        # Fallback to local / OS speech engine!
                         speak(reply_text)
-                        
-                    t = threading.Thread(target=run_speech, daemon=True)
-                    t.start()
                     
-                    words = clean_widget_text.split(" ")
-                    display_text = ""
-                    for word in words:
-                        if getattr(brain, "abort_flag", False):
-                            break
-                        display_text += word + " "
-                        WIDGET_STATE["main_text"] = display_text.strip()
-                        time.sleep(0.35) # ~170 words per minute speaking pace
-                        
-                    t.join() # Wait for voice to finish
+                    WIDGET_STATE["is_speaking"] = False
+                    WIDGET_STATE["main_text"] = reply_text
+                    WIDGET_STATE["sub_text"] = ""
             else:
                 if not brain.abort_flag:
                     WIDGET_STATE["main_text"] = "I didn't catch that."
-                    speak("I didn't catch that.")
+                    WIDGET_STATE["reply_text"] = "I didn't catch that."
+                    WIDGET_STATE["is_speaking"] = True
+                    WIDGET_STATE["speak_id"] = time.time()
+                    if WIDGET_CLIENT_CAPS.get("browser_tts", False):
+                        WIDGET_SPEECH_EVENT.clear()
+                        WIDGET_STATE["speak_text"] = "I didn't catch that."
+                        WIDGET_SPEECH_EVENT.wait(timeout=4.0)
+                    else:
+                        speak("I didn't catch that.")
+                    WIDGET_STATE["is_speaking"] = False
         finally:
             import wake_word
             wake_word.resume_wake_word()
-            
-            # Only terminate if we were NOT interrupted by a new task
-            if current_widget_proc == my_proc and not brain.abort_flag:
-                try:
-                    my_proc.terminate()
-                except:
-                    pass
+            # Do not auto-terminate the widget!
+            # The popup stays open so the user can see and read the answer.
                 
     threading.Thread(target=background_task, args=(current_widget_proc,), daemon=True).start()
 
 if load_settings().get("wake_word_enabled", True):
     wake_word.start_wake_word(_on_wake_word)
+
+def is_direct_localhost():
+    """Returns True ONLY if request comes directly from the local machine, not via remote tunnel or LAN."""
+    if request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP"):
+        return False
+    remote = request.remote_addr or ""
+    return remote in ("127.0.0.1", "::1", "localhost")
+
+def verify_request_auth():
+    """Allows direct localhost, or requires valid PAIR_TOKEN for remote/network requests."""
+    if is_direct_localhost():
+        return True
+    req_token = request.headers.get("X-Pair-Token")
+    if not req_token and request.is_json:
+        req_token = (request.json or {}).get("token")
+    elif not req_token:
+        req_token = request.form.get("token") or request.args.get("token")
+    return bool(req_token and req_token == PAIR_TOKEN)
 
 @app.route("/api/wake_word", methods=["GET", "POST"])
 def wake_word_endpoint():
@@ -235,6 +306,8 @@ def get_status():
 
 @app.route("/api/settings", methods=["GET", "POST"])
 def manage_settings():
+    if not verify_request_auth():
+        return jsonify({"error": "Unauthorized"}), 401
     if request.method == "GET":
         return jsonify(load_settings())
     else:
@@ -295,35 +368,52 @@ from flask import Response
 @app.route("/api/install", methods=["GET"])
 def install_system():
     def generate():
-        import subprocess, sys, os
-        python_bin = sys.executable
-        if os.path.exists("./venv/bin/python"):
-            python_bin = "./venv/bin/python"
+        import subprocess, sys, os, platform
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        is_win = platform.system() == "Windows"
         
-        process = subprocess.Popen([python_bin, "install.py"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        for line in process.stdout:
-            yield f"data: {line}\n\n"
-        process.stdout.close()
-        process.wait()
+        venv_py = os.path.join(base_dir, "venv", "Scripts", "python.exe") if is_win else os.path.join(base_dir, "venv", "bin", "python")
+        python_bin = venv_py if os.path.exists(venv_py) else sys.executable
+        install_script = os.path.join(base_dir, "install.py")
         
-        # Once complete, automatically set setup_complete to True
-        settings = load_settings()
-        settings["setup_complete"] = True
-        save_settings(settings)
-        
-        yield "data: [INSTALL_COMPLETE]\n\n"
+        try:
+            process = subprocess.Popen([python_bin, install_script], cwd=base_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in process.stdout:
+                yield f"data: {line}\n\n"
+            process.stdout.close()
+            ret_code = process.wait()
+            
+            if ret_code == 0:
+                settings = load_settings()
+                settings["setup_complete"] = True
+                save_settings(settings)
+                yield "data: [INSTALL_COMPLETE]\n\n"
+            else:
+                yield f"data: [INSTALL_ERROR] Installation exited with code {ret_code}\n\n"
+        except Exception as e:
+            yield f"data: [INSTALL_ERROR] Failed to run installer: {str(e)}\n\n"
         
     return Response(generate(), mimetype='text/event-stream')
 
 def stop_audio_process():
+    brain.abort_flag = True
+    try:
+        from voice import terminate_active_audio
+        terminate_active_audio()
+    except Exception:
+        pass
     import platform
     if platform.system() == "Windows":
         subprocess.run("taskkill /F /IM ffplay.exe /T 2>NUL || exit /b 0", shell=True)
     else:
-        subprocess.run("killall ffplay 2>/dev/null || true", shell=True)
+        subprocess.run("pkill -9 ffplay 2>/dev/null || killall -9 ffplay 2>/dev/null || true", shell=True)
+        subprocess.run("spd-say -C 2>/dev/null || true", shell=True)
+        subprocess.run("pkill -9 spd-say 2>/dev/null || killall -9 spd-say 2>/dev/null || true", shell=True)
 
 @app.route("/api/stop", methods=["POST"])
 def stop_generation():
+    if not verify_request_auth():
+        return jsonify({"error": "Unauthorized"}), 401
     brain.abort_flag = True
     brain.is_processing = False
     brain.current_status = "Idle"
@@ -374,6 +464,8 @@ def sync_brain_session(session_id):
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
+    if not verify_request_auth():
+        return jsonify({"error": "Unauthorized: Valid pair token required for remote access."}), 401
     stop_audio_process()
     if request.is_json:
         user_text = request.json.get("text", "").strip()
@@ -391,7 +483,7 @@ def chat():
 
     from usage_tracker import usage_tracker
     if not usage_tracker.can_generate():
-        return jsonify({"error": "You've exhausted your tokens and your wallet balance is empty. Please click 'Wallet Top-Up' to add funds and continue using Tilux ASM."}), 402
+        return jsonify({"error": "You've exhausted your free trial credit ($1.00) or your wallet balance is empty. Please click 'Top Up' to add funds and continue using Tilux ASM."}), 402
 
     session_id = sync_brain_session(session_id)
         
@@ -431,6 +523,8 @@ def chat():
 
 @app.route("/api/voice_upload", methods=["POST"])
 def voice_upload():
+    if not verify_request_auth():
+        return jsonify({"error": "Unauthorized: Valid pair token required."}), 401
     if "audio" not in request.files:
         return jsonify({"error": "No audio file provided"}), 400
         
@@ -537,6 +631,8 @@ def get_system_stats():
 
 @app.route("/api/trigger", methods=["POST"])
 def trigger_action():
+    if not verify_request_auth():
+        return jsonify({"error": "Unauthorized"}), 401
     action = request.json.get("action")
     if action == "browser":
         subprocess.Popen("xdg-open https://google.com", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -545,6 +641,18 @@ def trigger_action():
     elif action == "music":
         # Launch youtube music in background via play_music wrapper
         subprocess.Popen('./venv/bin/python play_music.py "top hits" &', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif action == "toggle_god_mode":
+        state = request.json.get("state", False)
+        import json, os
+        settings = {}
+        if os.path.exists("settings.json"):
+            try:
+                with open("settings.json", "r") as f:
+                    settings = json.load(f)
+            except: pass
+        settings["god_mode"] = state
+        with open("settings.json", "w") as f:
+            json.dump(settings, f, indent=4)
     
     return jsonify({"status": "success"})
 
@@ -620,6 +728,8 @@ def get_host_info():
 
 @app.route("/api/host_info", methods=["GET"])
 def get_host_info_api():
+    if not is_direct_localhost():
+        return jsonify({"error": "Forbidden: Host info is only accessible locally from this PC."}), 403
     return jsonify({
         "host_id": HOST_ID,
         "pair_token": PAIR_TOKEN,
@@ -630,6 +740,8 @@ def get_host_info_api():
 
 @app.route("/api/regenerate_pair_token", methods=["POST"])
 def regenerate_pair_token():
+    if not is_direct_localhost():
+        return jsonify({"error": "Forbidden"}), 403
     global PAIR_TOKEN
     new_token = "tilux_pair_" + os.urandom(6).hex()
     PAIR_TOKEN = new_token
@@ -666,6 +778,8 @@ def get_public_url():
 
 @app.route("/api/qr_pair", methods=["GET"])
 def get_qr_pair():
+    if not is_direct_localhost():
+        return jsonify({"error": "Forbidden: QR pairing is only accessible locally."}), 403
     ip = get_local_ip()
     public_url = get_public_url()
     
@@ -724,6 +838,11 @@ def handle_remote_prompt(data):
         emit("error", {"message": "Unauthorized remote device"})
         return
         
+    from usage_tracker import usage_tracker
+    if not usage_tracker.can_generate():
+        emit("error", {"message": "You've exhausted your free trial credit ($1.00) or your wallet balance is empty. Please top-up via the desktop app to continue."})
+        return
+        
     client_sid = request.sid
     
     session_id = sync_brain_session(session_id)
@@ -752,7 +871,7 @@ def handle_remote_prompt(data):
                     print(f"[Remote Attachment Save Error] {e}")
                     
         try:
-            result = brain.process_input(prompt_text, attachments=saved_files)
+            result = brain.process_input(prompt_text, attachments=saved_files, session_id=sid)
         except Exception as e:
             result = {"reply": "Remote task failed: " + str(e), "events": []}
             
@@ -927,22 +1046,42 @@ def verify_payment():
             return jsonify({"status": "error", "message": "Missing payment reference"}), 400
 
         verified = False
-        proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app")
-        
-        req = urllib.request.Request(
-            f"{proxy_url}/api/v1/payment/verify",
-            data=json.dumps(data).encode('utf-8'),
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                res_json = json.loads(resp.read().decode('utf-8'))
-                if res_json.get("status") == "success":
-                    verified = True
-        except urllib.error.HTTPError:
-            pass
+        if gateway == "paystack":
+            sec_key = credentials.get_credential("PAYSTACK_SECRET_KEY")
+            if sec_key:
+                try:
+                    p_req = urllib.request.Request(
+                        f"https://api.paystack.co/transaction/verify/{urllib.parse.quote(reference)}",
+                        headers={"Authorization": f"Bearer {sec_key}"}
+                    )
+                    with urllib.request.urlopen(p_req, timeout=10) as p_resp:
+                        p_data = json.loads(p_resp.read().decode("utf-8"))
+                        if p_data.get("status") and p_data.get("data", {}).get("status") == "success":
+                            verified = True
+                            p_curr = p_data.get("data", {}).get("currency", "USD")
+                            p_amt = p_data.get("data", {}).get("amount", 0) / 100.0
+                            if p_curr == "NGN" and amount_usd == 10.0:
+                                amount_usd = round(p_amt / 1500.0, 2)
+                            elif p_curr == "USD":
+                                amount_usd = round(p_amt, 2)
+                except Exception as p_err:
+                    print(f"[Direct Paystack Verify Notice] {p_err}")
+
+        if not verified:
+            proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app")
+            req = urllib.request.Request(
+                f"{proxy_url}/api/v1/payment/verify",
+                data=json.dumps(data).encode('utf-8'),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    res_json = json.loads(resp.read().decode('utf-8'))
+                    if res_json.get("status") == "success":
+                        verified = True
+            except urllib.error.HTTPError:
+                pass
 
         if verified:
             summary = usage_tracker.add_funds(amount_usd, gateway, reference)

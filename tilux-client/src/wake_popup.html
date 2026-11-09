@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tilux Listening...</title>
+    <title>Tilux Voice</title>
+    <link rel="icon" type="image/png" href="./icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             margin: 0;
@@ -22,12 +23,41 @@
             font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             color: white;
             text-align: center;
+            position: relative;
+            user-select: none;
+        }
+
+        #close-btn {
+            position: absolute;
+            top: 10px;
+            right: 14px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            width: 22px;
+            height: 22px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 100;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        #close-btn:hover {
+            background: rgba(239, 68, 68, 0.6);
+            border-color: rgba(239, 68, 68, 0.9);
+            color: #ffffff;
+            transform: scale(1.1);
         }
 
         .orb-container {
             position: relative;
-            width: 140px;
-            height: 140px;
+            width: 130px;
+            height: 130px;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -37,13 +67,13 @@
             cursor: pointer;
             filter: drop-shadow(0 0 15px #c4b5fd) drop-shadow(0 0 25px #8b5cf6);
             transition: all 0.3s ease;
-            margin-top: 35px;
+            margin-top: 25px;
             flex-shrink: 0;
         }
 
         .orb {
             position: absolute;
-            width: 140px;
+            width: 130px;
             aspect-ratio: 1;
             border-radius: 50%;
             background: #060606;
@@ -52,7 +82,7 @@
         }
 
         .orb-container:hover .orb {
-            width: 160px;
+            width: 150px;
             animation: rotate 6s infinite;
         }
 
@@ -102,26 +132,52 @@
             flex-direction: column;
             align-items: center;
             justify-content: flex-start;
-            margin-top: 5px;
+            margin-top: 6px;
         }
 
         #main-text {
-            font-size: 18px;
-            font-weight: 600;
-            line-height: 1.3;
-            letter-spacing: 0.3px;
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 1.35;
+            letter-spacing: 0.2px;
             text-shadow: 0 2px 5px rgba(0,0,0,0.8);
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            max-height: 80px;
+            overflow-y: auto;
             opacity: 0.95;
-            margin-bottom: 5px;
-            min-height: 20px;
+            margin-bottom: 4px;
+            min-height: 32px;
+            scrollbar-width: none;
+            padding: 0 6px;
+            box-sizing: border-box;
+            transition: all 0.12s ease;
+        }
+
+        #main-text::-webkit-scrollbar {
+            display: none;
+        }
+
+        #main-text.word-mode {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            color: #ffffff;
+            text-shadow: 0 0 16px rgba(168, 85, 247, 0.9), 0 2px 4px rgba(0,0,0,0.9);
+            min-height: 36px;
+            max-height: 42px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: wordPop 0.1s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes wordPop {
+            0% { transform: scale(0.92); opacity: 0.75; }
+            100% { transform: scale(1); opacity: 1; }
         }
 
         #sub-text {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 300;
             font-style: italic;
             letter-spacing: 0.3px;
@@ -137,6 +193,8 @@
     </style>
 </head>
 <body>
+    <button id="close-btn" onclick="dismissWidget(event)" title="Close (Esc)">✕</button>
+
     <div class="orb-container">
         <div class="orb" id="orb">
             <div class="orb-inner"></div>
@@ -150,72 +208,284 @@
     </div>
     
     <script>
-        document.body.addEventListener('click', () => {
-            window.blur(); 
-        });
-        
+        let isDismissed = false;
+        let wordStreamTimeout = null;
+        let isStreamingWords = false;
         let fullMainText = "";
-        let chunks = [];
-        let currentChunkIndex = 0;
-        let chunkTimer = null;
+        let lastSpokenId = null;
+        let voices = [];
+        let hasSpeech = ('speechSynthesis' in window);
 
-        function splitIntoChunks(text, wordsPerChunk) {
-            let words = text.split(" ");
-            let result = [];
-            for (let i = 0; i < words.length; i += wordsPerChunk) {
-                result.push(words.slice(i, i + wordsPerChunk).join(" "));
+        function dismissWidget(e) {
+            if (e && e.stopPropagation) e.stopPropagation();
+            if (isDismissed) return;
+            isDismissed = true;
+            
+            if (wordStreamTimeout) {
+                clearTimeout(wordStreamTimeout);
+                wordStreamTimeout = null;
             }
-            return result;
+            isStreamingWords = false;
+
+            if (hasSpeech) {
+                try {
+                    window.speechSynthesis.cancel();
+                } catch(err) {}
+            }
+
+            try {
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon('http://127.0.0.1:8932/api/stop');
+                }
+            } catch(err) {}
+
+            try {
+                fetch('http://127.0.0.1:8932/api/stop', { method: 'POST', keepalive: true }).catch(() => {});
+            } catch(err) {}
+
+            setTimeout(() => {
+                window.close();
+            }, 30);
         }
 
-        async function updateState() {
+        document.body.addEventListener('click', (e) => {
+            if (e.target && e.target.id === 'close-btn') return;
+            dismissWidget(e);
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') dismissWidget(e);
+        });
+
+        function refreshVoices() {
+            if (!hasSpeech) return;
             try {
-                const res = await fetch('http://127.0.0.1:8932/api/widget_state');
-                const data = await res.json();
-                
-                if (data.main_text !== fullMainText) {
-                    fullMainText = data.main_text;
-                    clearTimeout(chunkTimer);
-                    
-                    if (fullMainText === "Listening..." || fullMainText.length < 35) {
-                        document.getElementById('main-text').innerText = fullMainText;
-                    } else {
-                        // Subtitle mode
-                        chunks = splitIntoChunks(fullMainText, 6);
-                        currentChunkIndex = 0;
-                        
-                        function nextChunk() {
-                            if (currentChunkIndex < chunks.length) {
-                                document.getElementById('main-text').innerText = chunks[currentChunkIndex];
-                                let durationMs = Math.max(1000, chunks[currentChunkIndex].length * 65); 
-                                currentChunkIndex++;
-                                chunkTimer = setTimeout(nextChunk, durationMs);
-                            } else {
-                                document.getElementById('main-text').innerText = chunks[chunks.length - 1] || "";
-                            }
-                        }
-                        nextChunk();
-                    }
-                }
-                
-                let sub = data.sub_text;
-                if (sub.toLowerCase().includes("ran a command") || sub.includes("Running:") || sub.includes("Tool:")) {
-                    sub = "Working on it...";
-                }
-                document.getElementById('sub-text').innerText = sub;
-                
-                const orb = document.getElementById('orb');
-                if (data.main_text === "Listening...") {
-                    orb.style.animationDuration = "1.5s";
-                } else if (data.sub_text) {
-                    orb.style.animationDuration = "0.7s";
-                } else {
-                    orb.style.animationDuration = "2s";
+                voices = window.speechSynthesis.getVoices() || [];
+                if (voices.length > 0) {
+                    reportCapabilities(true);
                 }
             } catch(e) {}
         }
-        
-        setInterval(updateState, 500);
+
+        async function reportCapabilities(canSpeak) {
+            try {
+                await fetch('http://127.0.0.1:8932/api/widget_capabilities', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ browser_tts: canSpeak && voices.length > 0 })
+                });
+            } catch(e) {}
+        }
+
+        if (hasSpeech) {
+            refreshVoices();
+            if (window.speechSynthesis.onvoiceschanged !== undefined) {
+                window.speechSynthesis.onvoiceschanged = refreshVoices;
+            }
+            setTimeout(refreshVoices, 300);
+        } else {
+            reportCapabilities(false);
+        }
+
+        function cleanSpokenText(text) {
+            if (!text) return "";
+            return text
+                .replace(/!\[.*?\]\(.*?\)/g, '')
+                .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+                .replace(/```[\s\S]*?```/g, '')
+                .replace(/`[^`]+`/g, '')
+                .replace(/https?:\/\/[^\s]+/g, '')
+                .replace(/[*_~`#>\-]/g, '')
+                .trim();
+        }
+
+        function streamSingleWords(cleanText, onComplete) {
+            const mainEl = document.getElementById('main-text');
+            if (wordStreamTimeout) {
+                clearTimeout(wordStreamTimeout);
+                wordStreamTimeout = null;
+            }
+
+            const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+            if (words.length === 0) {
+                if (mainEl) {
+                    mainEl.classList.remove('word-mode');
+                    mainEl.innerText = "";
+                }
+                if (onComplete) onComplete();
+                return;
+            }
+
+            isStreamingWords = true;
+            let idx = 0;
+
+            function showNextWord() {
+                if (isDismissed || !isStreamingWords) return;
+                if (idx < words.length) {
+                    const word = words[idx];
+                    if (mainEl) {
+                        mainEl.classList.add('word-mode');
+                        mainEl.innerText = word;
+                    }
+                    idx++;
+
+                    // Dynamic timing tailored to word length and sentence cadence
+                    let delay = Math.max(160, Math.min(360, word.length * 35));
+                    if (word.endsWith(',') || word.endsWith(';')) delay += 120;
+                    if (word.endsWith('.') || word.endsWith('!') || word.endsWith('?')) delay += 220;
+
+                    wordStreamTimeout = setTimeout(showNextWord, delay);
+                } else {
+                    isStreamingWords = false;
+                    if (mainEl) {
+                        mainEl.classList.remove('word-mode');
+                        mainEl.innerText = cleanText;
+                    }
+                    if (onComplete) onComplete();
+                }
+            }
+
+            showNextWord();
+        }
+
+        function speakWithBrowserSync(rawText, speakId) {
+            if (speakId === lastSpokenId || !rawText) return;
+            lastSpokenId = speakId;
+
+            const cleanText = cleanSpokenText(rawText);
+            const mainEl = document.getElementById('main-text');
+            const orb = document.getElementById('orb');
+
+            if (!cleanText) {
+                if (mainEl) {
+                    mainEl.classList.remove('word-mode');
+                    mainEl.innerText = "";
+                }
+                return;
+            }
+
+            if (!hasSpeech || voices.length === 0) {
+                // If browser TTS is not available, stream words visually synchronized with audio
+                if (orb) orb.style.animationDuration = "0.7s";
+                streamSingleWords(cleanText, () => {
+                    if (orb) orb.style.animationDuration = "2s";
+                });
+                return;
+            }
+
+            try {
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.resume();
+
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                utterance.rate = 1.05;
+
+                const chosenVoice = voices.find(v => 
+                    v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Jenny') || v.name.includes('Guy'))
+                ) || voices.find(v => v.lang.startsWith('en')) || voices[0];
+
+                if (chosenVoice) utterance.voice = chosenVoice;
+
+                if (mainEl) {
+                    mainEl.classList.add('word-mode');
+                    mainEl.innerText = "";
+                }
+
+                // Show only one word at a time as each word is spoken
+                utterance.onboundary = (e) => {
+                    if (e.name === 'word' && mainEl) {
+                        const remaining = cleanText.substring(e.charIndex);
+                        const match = remaining.match(/^(\S+)/);
+                        if (match) {
+                            mainEl.classList.add('word-mode');
+                            mainEl.innerText = match[1];
+                        }
+                    }
+                };
+
+                utterance.onstart = () => {
+                    if (orb) orb.style.animationDuration = "0.7s";
+                };
+
+                utterance.onend = () => {
+                    if (mainEl) {
+                        mainEl.classList.remove('word-mode');
+                        mainEl.innerText = cleanText;
+                    }
+                    if (orb) orb.style.animationDuration = "2s";
+                    fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
+                };
+
+                utterance.onerror = () => {
+                    if (mainEl) {
+                        mainEl.classList.remove('word-mode');
+                        mainEl.innerText = cleanText;
+                    }
+                    if (orb) orb.style.animationDuration = "2s";
+                    fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
+                };
+
+                window.speechSynthesis.speak(utterance);
+            } catch(e) {
+                streamSingleWords(cleanText, () => {
+                    if (orb) orb.style.animationDuration = "2s";
+                });
+                fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
+            }
+        }
+
+        async function updateState() {
+            if (isDismissed) return;
+            try {
+                const res = await fetch('http://127.0.0.1:8932/api/widget_state');
+                const data = await res.json();
+                const mainEl = document.getElementById('main-text');
+
+                // 1. If server sent speech request with speak_id
+                if (data.speak_text && data.speak_id && data.speak_id !== lastSpokenId) {
+                    speakWithBrowserSync(data.speak_text, data.speak_id);
+                } else if (data.reply_text && data.speak_id && data.speak_id !== lastSpokenId) {
+                    lastSpokenId = data.speak_id;
+                    const cleanText = cleanSpokenText(data.reply_text);
+                    const orb = document.getElementById('orb');
+                    if (orb) orb.style.animationDuration = "0.7s";
+                    streamSingleWords(cleanText, () => {
+                        if (orb) orb.style.animationDuration = "2s";
+                    });
+                } else if (!isStreamingWords && !data.is_speaking) {
+                    // For user voice-to-text or system status (e.g. Listening...), show full text directly (not word-by-word)
+                    if (mainEl) mainEl.classList.remove('word-mode');
+                    if (data.main_text !== fullMainText) {
+                        fullMainText = data.main_text;
+                        if (mainEl) mainEl.innerText = fullMainText;
+                    }
+                }
+
+                let sub = data.sub_text || "";
+                if (sub.toLowerCase().includes("ran a command") || sub.includes("Running:") || sub.includes("Tool:")) {
+                    sub = "Working on it...";
+                }
+                const subEl = document.getElementById('sub-text');
+                if (subEl) subEl.innerText = sub;
+
+                const orb = document.getElementById('orb');
+                if (orb) {
+                    if (data.main_text === "Listening...") {
+                        orb.style.animationDuration = "1.5s";
+                    } else if (data.main_text === "Processing..." || data.sub_text === "Thinking..." || data.sub_text === "Transcribing voice...") {
+                        orb.style.animationDuration = "0.4s";
+                    } else if (data.is_speaking || isStreamingWords) {
+                        orb.style.animationDuration = "0.7s";
+                    } else if (data.sub_text) {
+                        orb.style.animationDuration = "0.8s";
+                    } else {
+                        orb.style.animationDuration = "2.5s";
+                    }
+                }
+            } catch(e) {}
+        }
+
+        setInterval(updateState, 100);
         updateState();
     </script>
 </body>

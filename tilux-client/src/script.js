@@ -65,7 +65,8 @@ function updateWalletModalUI(data) {
     
     if (data.is_free_trial) {
         const hoursLeft = data.remaining_trial_hours !== undefined ? data.remaining_trial_hours : 24;
-        if (billingTrialText) billingTrialText.textContent = `24h Free Trial (${hoursLeft}h)`;
+        const trialRem = data.trial_remaining_usd !== undefined ? '$' + Number(data.trial_remaining_usd).toFixed(2) : '$1.00';
+        if (billingTrialText) billingTrialText.textContent = `Trial: ${trialRem} (${hoursLeft}h)`;
     } else {
         const balance = (data.wallet_balance_usd !== undefined) ? '$' + Number(data.wallet_balance_usd).toFixed(2) : '$0.00';
         if (billingTrialText) billingTrialText.textContent = `Wallet: ${balance}`;
@@ -75,7 +76,10 @@ function updateWalletModalUI(data) {
     const trialPillLabel = document.getElementById('modalTrialPillLabel');
     if (trialPillLabel) {
         if (data.is_free_trial) {
-            trialPillLabel.textContent = `24h Free Trial (${data.remaining_trial_hours || 24}h remaining)`;
+            const trialRem = data.trial_remaining_usd !== undefined ? '$' + Number(data.trial_remaining_usd).toFixed(2) : '$1.00';
+            trialPillLabel.textContent = `24h Free Trial (${trialRem} of $1.00 · ${data.remaining_trial_hours || 24}h)`;
+        } else if (data.remaining_trial_seconds > 0) {
+            trialPillLabel.textContent = `Trial $1.00 Limit Reached`;
         } else {
             trialPillLabel.textContent = `Pay-As-You-Go Billing Active`;
         }
@@ -115,7 +119,7 @@ function updateWalletModalUI(data) {
 async function fetchBillingData() {
     try {
         const baseUrl = 'http://127.0.0.1:8932';
-        const res = await fetch(`${baseUrl}/api/billing_status`);
+        const res = await fetch(`${baseUrl}/api/billing_status`, { cache: 'no-store' });
         const data = await res.json();
         updateWalletModalUI(data);
     } catch (e) {
@@ -441,11 +445,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (typeof marked !== 'undefined' && marked.setOptions) {
+        try {
+            marked.setOptions({ breaks: true, gfm: true });
+        } catch(e) {}
+    }
+
     function formatMarkdownAndProxyImages(text) {
         if (!text) return '';
-        // Sanitize em dashes and en dashes globally
-        let sanitized = String(text).replace(/—/g, '-').replace(/–/g, '-');
+        // Sanitize em dashes, en dashes, horizontal bars, and html entities globally
+        let sanitized = String(text).trim().replace(/[—–―⸺⸻]/g, '-').replace(/&(?:mdash|ndash|#8212|#8211|#x2014|#x2013);/gi, '-');
         let parsed = typeof marked !== 'undefined' ? marked.parse(sanitized) : sanitized;
+        parsed = String(parsed).trim().replace(/(<p>\s*(<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|\s)+$/gi, '').trim();
         const hostPrefix = 'http://127.0.0.1:8932';
         return parsed.replace(/src=["'](file:\/\/[^"']+|\/[^"']+|[A-Za-z]:\\[^"']+|[^\s"']+\.(?:png|jpg|jpeg|webp|gif|svg))["']/gi, (match, p1) => {
             if (p1.startsWith('http://') || p1.startsWith('https://') || p1.startsWith('data:')) {
@@ -983,6 +994,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }, 400); // Wait for animation to finish
         }, 3000); // Show for 3 seconds
+    };
+
+    window.godModeEnabled = false;
+    window.toggleGodMode = async function() {
+        window.godModeEnabled = !window.godModeEnabled;
+        const btn = document.getElementById('godModeBtn');
+        if (window.godModeEnabled) {
+            btn.innerHTML = '<i class="fa-solid fa-skull"></i> God Mode: ON';
+            btn.style.color = '#ff4444';
+            btn.style.borderColor = '#ff4444';
+            btn.style.textShadow = '0 0 10px rgba(255, 68, 68, 0.5)';
+            
+            // Show toast for 4 seconds
+            const container = document.getElementById('toast-container');
+            if (container) {
+                const toast = document.createElement('div');
+                toast.className = 'toast danger';
+                toast.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Note: this might resolve in infinite loop and destruction';
+                container.appendChild(toast);
+                setTimeout(() => {
+                    toast.classList.add('hide');
+                    setTimeout(() => {
+                        if (toast.parentNode === container) container.removeChild(toast);
+                    }, 400);
+                }, 4000);
+            }
+        } else {
+            btn.innerHTML = '<i class="fa-solid fa-skull"></i> God Mode: OFF';
+            btn.style.color = '';
+            btn.style.borderColor = '';
+            btn.style.textShadow = '';
+        }
+        
+        // Notify backend
+        await fetch('http://127.0.0.1:8932/api/trigger', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'toggle_god_mode', state: window.godModeEnabled })
+        });
     };
 
     window.triggerAction = async function(action) {
@@ -1731,3 +1781,27 @@ document.getElementById('chat-history').addEventListener('click', function(e) {
         window.openImagePreview(e.target.src);
     }
 });
+
+// Disable right-click context menu (prevents browser inspect element)
+document.addEventListener('contextmenu', function(e) {
+    const target = e.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return; // Allow native copy/paste inside input fields
+    }
+    e.preventDefault();
+});
+
+// Suppress DevTools shortcuts inside the renderer window
+document.addEventListener('keydown', function(e) {
+    const key = (e.key || '').toLowerCase();
+    if (
+        key === 'f12' ||
+        (e.ctrlKey && e.shiftKey && (key === 'i' || key === 'j' || key === 'c')) ||
+        (e.metaKey && e.altKey && (key === 'i' || key === 'j' || key === 'c')) ||
+        (e.ctrlKey && key === 'u')
+    ) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+});
+

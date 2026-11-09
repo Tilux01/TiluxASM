@@ -44,9 +44,22 @@ You don't need to be at your desk to control your PC. Tilux ASM features a beaut
 
 ## Installation & Setup
 
-You can compile Tilux ASM into a standalone desktop installer (`.exe`, `.AppImage`, `.dmg`) using the included Nuitka and Electron Builders!
+### System Prerequisites (Windows / Linux / macOS)
+1. **Python 3.11 or 3.12 (64-bit Strictly Required):**
+   - Download from [python.org](https://www.python.org/downloads/).
+   - ⚠️ **Windows Notice:** When installing Python, you **MUST check the box: "Add python.exe to PATH"**.
+   - Make sure you install the **64-bit** version (AI speech and PyTorch models do not support 32-bit).
+2. **Node.js (v18 or v20+):**
+   - Download from [nodejs.org](https://nodejs.org/).
+3. **Microsoft Visual C++ Redistributable (Windows Only):**
+   - Install the x64 C++ runtime from [Microsoft](https://aka.ms/vs/17/release/vc_redist.x64.exe) (needed for AI inference).
+4. **Optional Media Tools (Windows):**
+   - In PowerShell / Terminal: `winget install Gyan.FFmpeg UB-Mannheim.TesseractOCR`
+   - *(Tilux ASM includes automatic fallbacks if FFmpeg or Tesseract are not installed).*
 
-### Build the Desktop Application:
+---
+
+### Step-by-Step Installation:
 
 1. **Clone the Repository:**
    ```bash
@@ -54,21 +67,31 @@ You can compile Tilux ASM into a standalone desktop installer (`.exe`, `.AppImag
    cd TiluxASM
    ```
 
-2. **Run the Nuitka Compiler (Linux/Mac/Windows):**
-   *(Note: This translates the Python Brain into C code and compiles it into an unbreakable binary.)*
-   ```bash
-   pip install -r requirements.txt
-   python build_nuitka.py
-   ```
+2. **Run the Diagnostic Tool (Windows Environment Test):**
+   On Windows, simply double-click **`diagnose_windows.bat`** (or run `python diagnose_windows.py`).
+   This tests your Python version, PATH, 64-bit mode, C++ runtimes, and dependencies in 5 seconds!
 
-3. **Package the Electron UI:**
+3. **Install Dependencies & Offline AI Models:**
+   ```bash
+   python install.py
+   ```
+   *(This automatically creates a virtual environment, installs all Python packages with automatic fallbacks, and downloads the required offline AI engines).*
+
+4. **Launch the Desktop Client:**
    ```bash
    cd tilux-client
    npm install
-   npm run dist
+   npm start
    ```
 
-*(Alternatively, you can just push to the `master` branch and GitHub Actions will automatically build the Windows, Linux, and Mac installers for you!)*
+5. **Build Standalone Desktop Installers (`.exe`, `.AppImage`, `.dmg`):**
+   ```bash
+   cd tilux-client
+   npm run build:win      # For Windows NSIS installer (.exe)
+   npm run build:linux    # For Linux AppImage / deb / pacman
+   npm run build:mac      # For macOS DMG
+   ```
+   *(Installers will be generated in `tilux-client/dist/`)*
 
 ---
 

@@ -153,9 +153,10 @@ class AssistantApp(QWidget):
         
     def process_thread(self, text):
         """Background thread for AI generation and Text-To-Speech."""
-        reply = self.brain.process_input(text)
-        self.signals.message_ready.emit("Assistant", reply)
-        speak(reply) # Speak it out loud (this blocks the thread, which is fine)
+        reply_data = self.brain.process_input(text)
+        reply_text = reply_data.get("reply", "") if isinstance(reply_data, dict) else str(reply_data)
+        self.signals.message_ready.emit("Assistant", reply_text)
+        speak(reply_text) # Speak it out loud (this blocks the thread, which is fine)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

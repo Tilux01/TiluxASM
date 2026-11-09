@@ -233,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             el.dataset.contentHash = contentStr;
                             let durStr = ev.duration ? ` for ${ev.duration}` : "";
                             let label = ev.type === "think" ? `Thought${durStr}` : `Ran a command${durStr}`;
-                            let content = ev.content ? (typeof marked !== 'undefined' ? marked.parse(ev.content) : ev.content.replace(/</g, "&lt;").replace(/>/g, "&gt;")) : "Finished thinking.";
+                            let content = ev.content ? (typeof marked !== 'undefined' ? String(marked.parse(String(ev.content).trim())).trim().replace(/(<p>\s*(<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|\s)+$/gi, '').trim() : ev.content.replace(/</g, "&lt;").replace(/>/g, "&gt;")) : "Finished thinking.";
                             el.innerHTML = `<details class="ai-steps-details"${isOpen ? ' open' : ''}><summary class="ai-steps-summary"><i class="fa-solid fa-chevron-right arrow-icon"></i> ${label}</summary><div class="ai-step"><i class="fa-solid fa-code-commit" style="margin-top: 4px;"></i> <div class="ai-step-content">${content}</div></div></details>`;
                             didUpdate = true;
                         }
@@ -246,19 +246,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setReply: function(text) {
                 const container = document.getElementById(`events-container-${loadingId}`);
                 if (container) {
-                    const runningEls = container.querySelectorAll('.event-running');
-                    runningEls.forEach(el => {
-                        const parent = el.closest('.ai-event');
-                        if (parent && parent.dataset.completed !== "true") {
-                            parent.remove();
-                        }
-                    });
-
-                    if (container.children.length === 0) {
-                        container.style.display = 'none';
-                    } else {
-                        container.style.display = '';
-                    }
+                    container.innerHTML = '';
+                    container.style.display = 'none';
                 }
                 const textResponse = document.getElementById(`text-response-${loadingId}`);
                 if (textResponse) {
@@ -1016,3 +1005,27 @@ window.submitAuthForm = function() {
         window.hideAuthOverlay();
     }
 };
+
+// Disable right-click context menu (prevents browser inspect element)
+document.addEventListener('contextmenu', function(e) {
+    const target = e.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+    }
+    e.preventDefault();
+});
+
+// Suppress DevTools shortcuts inside the browser view
+document.addEventListener('keydown', function(e) {
+    const key = (e.key || '').toLowerCase();
+    if (
+        key === 'f12' ||
+        (e.ctrlKey && e.shiftKey && (key === 'i' || key === 'j' || key === 'c')) ||
+        (e.metaKey && e.altKey && (key === 'i' || key === 'j' || key === 'c')) ||
+        (e.ctrlKey && key === 'u')
+    ) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+});
+

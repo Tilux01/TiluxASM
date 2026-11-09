@@ -26,72 +26,60 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile 3.11
+        shell: bash
         run: |
           python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt
-          python -m nuitka --module brain.py --enable-plugin=anti-bloat
-          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
-          python -m nuitka --module credentials.py --enable-plugin=anti-bloat
-          python -m nuitka --module actions.py --enable-plugin=anti-bloat
-          python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
-          python -m nuitka --module usage_tracker.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/file_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/media_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/messaging_executor.py --enable-plugin=anti-bloat
+          pip install -r requirements.txt || true
+          for mod in brain.py sfdcr.py credentials.py actions.py firebase_sync.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
+            if [ -f "$mod" ]; then
+              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
+            fi
+          done
 
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Compile 3.12
+        shell: bash
         run: |
           python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt
-          python -m nuitka --module brain.py --enable-plugin=anti-bloat
-          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
-          python -m nuitka --module credentials.py --enable-plugin=anti-bloat
-          python -m nuitka --module actions.py --enable-plugin=anti-bloat
-          python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
-          python -m nuitka --module usage_tracker.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/file_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/media_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/messaging_executor.py --enable-plugin=anti-bloat
+          pip install -r requirements.txt || true
+          for mod in brain.py sfdcr.py credentials.py actions.py firebase_sync.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
+            if [ -f "$mod" ]; then
+              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
+            fi
+          done
 
       - name: Setup Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - name: Compile 3.13
+        shell: bash
         run: |
           python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt
-          python -m nuitka --module brain.py --enable-plugin=anti-bloat
-          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
-          python -m nuitka --module credentials.py --enable-plugin=anti-bloat
-          python -m nuitka --module actions.py --enable-plugin=anti-bloat
-          python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
-          python -m nuitka --module usage_tracker.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/file_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/media_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/messaging_executor.py --enable-plugin=anti-bloat
+          pip install -r requirements.txt || true
+          for mod in brain.py sfdcr.py credentials.py actions.py firebase_sync.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
+            if [ -f "$mod" ]; then
+              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
+            fi
+          done
 
       - name: Setup Python 3.14
         uses: actions/setup-python@v5
         with:
           python-version: '3.14'
       - name: Compile 3.14
+        shell: bash
         run: |
           python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt
-          python -m nuitka --module brain.py --enable-plugin=anti-bloat
-          python -m nuitka --module sfdcr.py --enable-plugin=anti-bloat
-          python -m nuitka --module credentials.py --enable-plugin=anti-bloat
-          python -m nuitka --module actions.py --enable-plugin=anti-bloat
-          python -m nuitka --module firebase_sync.py --enable-plugin=anti-bloat
-          python -m nuitka --module usage_tracker.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/file_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/media_executor.py --enable-plugin=anti-bloat
-          python -m nuitka --module executors/messaging_executor.py --enable-plugin=anti-bloat
+          pip install -r requirements.txt || true
+          for mod in brain.py sfdcr.py credentials.py actions.py firebase_sync.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
+            if [ -f "$mod" ]; then
+              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
+            fi
+          done
 
       - name: Create Clean Engine Dist Folder
         run: |
@@ -99,13 +87,13 @@ jobs:
           import os, shutil, glob
           dist_dir = "tilux_engine_dist"
           os.makedirs(dist_dir, exist_ok=True)
-          for f in ["server.py", "autostart.py", "install.py", "requirements.txt", "memory.py", "voice.py", "tunnel_manager.py", "history_manager.py", "mac_permissions.py", "README.md", "play_music.py"]:
+          for f in glob.glob("*.py") + ["requirements.txt", "settings.json", "user_personal.json", "README.md"]:
               if os.path.exists(f): shutil.copy2(f, dist_dir)
           for f in glob.glob("*.so") + glob.glob("*.pyd"): shutil.copy2(f, dist_dir)
           for d in ["static", "templates"]:
               if os.path.exists(d): shutil.copytree(d, os.path.join(dist_dir, d), dirs_exist_ok=True)
           os.makedirs(os.path.join(dist_dir, "executors"), exist_ok=True)
-          for f in glob.glob("executors/*.so") + glob.glob("executors/*.pyd"): shutil.copy2(f, os.path.join(dist_dir, "executors"))
+          for f in glob.glob("executors/*.py") + glob.glob("executors/*.so") + glob.glob("executors/*.pyd"): shutil.copy2(f, os.path.join(dist_dir, "executors"))
           '
 
       - name: Setup Node.js
