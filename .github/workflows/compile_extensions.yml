@@ -12,6 +12,7 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         # This tells GitHub to spin up Windows, Mac, and Linux machines!
         os: [windows-latest, macos-latest, ubuntu-latest]
@@ -100,6 +101,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Ensure Build Icons
+        shell: bash
+        run: |
+          mkdir -p tilux-client/build
+          if [ -d tilux-client/src ]; then
+            cp -n tilux-client/src/icon.* tilux-client/build/ 2>/dev/null || true
+          fi
+          if [ -f tilux-client/build/icon.ico ]; then
+            cp -n tilux-client/build/icon.ico tilux-client/build/installerIcon.ico 2>/dev/null || true
+            cp -n tilux-client/build/icon.ico tilux-client/build/uninstallerIcon.ico 2>/dev/null || true
+            cp -n tilux-client/build/icon.ico tilux-client/build/installerHeaderIcon.ico 2>/dev/null || true
+          fi
 
       - name: Install Frontend Dependencies
         run: npm install

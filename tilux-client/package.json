@@ -7,10 +7,10 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder",
-    "build:linux": "electron-builder --linux",
-    "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac"
+    "dist": "electron-builder --publish never",
+    "build:linux": "electron-builder --linux --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac --publish never"
   },
   "build": {
     "appId": "com.tilux.asm",

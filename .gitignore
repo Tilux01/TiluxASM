@@ -5,8 +5,8 @@ memory.json
 settings.json
 *.log
 tilux_code_history.log
-build/
-dist/
+/build/
+/dist/
 *.spec
 .env
 node_modules/
@@ -29,6 +29,7 @@ static/uploads/
 server.dist/
 server.build/
 tilux-client/dist/
+tilux-client/build/tilux-server
 .git_disabled_backup/
 
 sfdcr.c
