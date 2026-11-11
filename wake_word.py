@@ -52,6 +52,7 @@ class WakeWordEngine:
                 time.sleep(0.5)
                 continue
                 
+            triggered = False
             try:
                 with sd.RawInputStream(samplerate=16000, blocksize=8000, dtype='int16',
                                        channels=1, callback=self._audio_callback):
@@ -75,17 +76,21 @@ class WakeWordEngine:
                                     print(f"[WakeWord] Trigger word detected: {text} (transcript: {text})")
                                     # Reset recognizer to clear the partial state
                                     recognizer.Reset()
-                                    self.is_paused = True # Instantly pause to release mic lock
-                                    
-                                    try:
-                                        self.callback()
-                                    except Exception as e:
-                                        print(f"[WakeWord] Callback error: {e}")
-                                    
+                                    self.is_paused = True
+                                    triggered = True
                                     break
+                        if triggered:
+                            break
             except Exception as stream_err:
                 print(f"[WakeWord] Stream error: {stream_err}")
                 time.sleep(1)
+                
+            # Safely invoke callback ONLY after the microphone stream is fully closed
+            if triggered:
+                try:
+                    self.callback()
+                except Exception as e:
+                    print(f"[WakeWord] Callback error: {e}")
                 
         print("[WakeWord] Engine stopped.")
 

@@ -343,47 +343,50 @@ def listen(on_recording_done=None) -> str:
         return ""
         
     sample_rate = 16000
-    print("[Voice] Listening for user speech (instant VAD)...")
+    print("[Voice] Listening for user speech...")
+    
+    audio_buffer = []
     
     import numpy as np
     import sounddevice as sd
     
-    # 0.08 seconds per chunk (1280 samples at 16kHz) for rapid reactive sampling
-    frames_per_chunk = 1280
-    chunk_sec = frames_per_chunk / sample_rate
+    SPEECH_THRESHOLD = 0.010    # Amplitude threshold to detect speech
+    SILENCE_THRESHOLD = 0.006   # Amplitude threshold for trailing silence
+    SILENCE_DURATION = 0.65     # Seconds of silence after speech to finish recording
+    MAX_DURATION = 14.0         # Max seconds of total recording
+    INITIAL_TIMEOUT = 5.0       # Max seconds to wait for speech to begin
     
-    INITIAL_TIMEOUT_CHUNKS = int(5.0 / chunk_sec)   # Allow up to 5s for user to begin speaking
-    SILENCE_CUTOFF_CHUNKS = int(0.65 / chunk_sec)   # Natural sentence-end detection (650ms silence)
-    MAX_RECORD_CHUNKS = int(12.0 / chunk_sec)       # Maximum 12 seconds total speech
+    frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
+    chunk_sec = 0.10
     
-    audio_buffer = []
-    has_spoken = False
+    max_silence_chunks = int(SILENCE_DURATION / chunk_sec)
+    max_chunks = int(MAX_DURATION / chunk_sec)
+    initial_timeout_chunks = int(INITIAL_TIMEOUT / chunk_sec)
+    
     silence_chunks_count = 0
-    
-    speech_threshold = 0.012
-    silence_threshold = 0.008
+    has_spoken = False
     
     try:
         with noalsaerr():
             with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
-                for chunk_idx in range(MAX_RECORD_CHUNKS):
+                for chunk_idx in range(max_chunks):
                     chunk, overflowed = stream.read(frames_per_chunk)
                     chunk = np.squeeze(chunk)
                     audio_buffer.append(chunk)
                     
                     rms = float(np.sqrt(np.mean(chunk**2)))
                     
-                    if rms >= speech_threshold:
+                    if rms >= SPEECH_THRESHOLD:
                         has_spoken = True
                         silence_chunks_count = 0
                     elif has_spoken:
-                        if rms <= silence_threshold:
+                        if rms <= SILENCE_THRESHOLD:
                             silence_chunks_count += 1
                         else:
                             silence_chunks_count = max(0, silence_chunks_count - 1)
                             
-                    # 1. Stop recording when silence follows speech
-                    if has_spoken and silence_chunks_count >= SILENCE_CUTOFF_CHUNKS:
+                    # 1. Stop recording when trailing silence follows speech
+                    if has_spoken and silence_chunks_count >= max_silence_chunks:
                         print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing instantly.")
                         if on_recording_done:
                             try:
@@ -393,22 +396,20 @@ def listen(on_recording_done=None) -> str:
                         break
                         
                     # 2. Timeout if user triggered wake word but never spoke
-                    if not has_spoken and chunk_idx >= INITIAL_TIMEOUT_CHUNKS:
+                    if not has_spoken and chunk_idx >= initial_timeout_chunks:
                         print("[Voice] Initial timeout: No speech detected within 5s.")
                         return ""
                         
         if not has_spoken or not audio_buffer:
             return ""
             
-        print("[Voice] Fast Whisper transcription starting...")
+        print("[Voice] Faster-Whisper transcribing speech...")
         audio_np = np.concatenate(audio_buffer)
         
         segments, info = model.transcribe(
             audio_np, 
             beam_size=1, 
             best_of=1, 
-            temperature=0.0,
-            vad_filter=True, # Silero VAD strips leading/trailing silence instantly
             condition_on_previous_text=False, 
             language="en"
         )
