@@ -331,7 +331,9 @@
                 }
 
                 let sub = data.sub_text || "";
-                if (sub.toLowerCase().includes("ran a command") || sub.includes("Running:") || sub.includes("Tool:")) {
+                if (data.is_speaking || sub === "Speaking...") {
+                    sub = "Speaking...";
+                } else if (sub.toLowerCase().includes("ran a command") || sub.includes("Running:") || sub.includes("Tool:")) {
                     sub = "Working on it...";
                 }
                 const subEl = document.getElementById('sub-text');

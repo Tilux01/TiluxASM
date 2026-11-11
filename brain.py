@@ -612,18 +612,28 @@ class Brain:
                 print(f"[Brain Event Callback Error] {e}")
 
     def generate_wake_acknowledgment(self) -> str:
-        """Fast instant acknowledgment without slow LLM API roundtrip."""
-        import random
-        greetings = [
-            "Yes?",
-            "I'm here.",
-            "Listening...",
-            "How can I help?",
-            "Go ahead.",
-            "Yes, I'm listening.",
-            "Ready."
-        ]
-        return random.choice(greetings)
+        """Fast instant acknowledgment based on current AI tone from wake_greetings.json."""
+        import random, json, os
+        from voice import get_voice_settings
+        settings = get_voice_settings()
+        tone = settings.get("ai_tone", "Sassy")
+        greetings_file = "wake_greetings.json"
+        greetings_map = {}
+        if os.path.exists(greetings_file):
+            try:
+                with open(greetings_file, "r") as f:
+                    greetings_map = json.load(f)
+            except Exception:
+                pass
+        
+        # Match configured tone
+        for k, v in greetings_map.items():
+            if k.lower() in tone.lower() and v:
+                return random.choice(v)
+                
+        # Default fallback
+        sassy_list = greetings_map.get("Sassy", ["Yeah? What's up?", "Talk to me.", "I'm listening."])
+        return random.choice(sassy_list)
 
     def _is_software_request(self, text: str) -> bool:
         """Determines if the prompt is asking for software development, coding, UI design, or webpage creation."""

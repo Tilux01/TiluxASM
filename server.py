@@ -158,17 +158,20 @@ def _on_wake_word():
     time.sleep(0.05)
     brain.abort_flag = False
     
+    # Generate random tone-matched wake greeting
+    wake_greeting = brain.generate_wake_acknowledgment()
+    
     import subprocess
     import threading
     settings = load_settings()
     exe_path = settings.get("frontend_executable", "npm")
     
     WIDGET_STATE = {
-        "main_text": "Listening...",
-        "sub_text": "Listening...",
+        "main_text": "Tilux",
+        "sub_text": "Speaking...",
         "speak_text": "",
         "speak_id": 0,
-        "is_speaking": False,
+        "is_speaking": True,
         "reply_text": ""
     }
     
@@ -188,7 +191,27 @@ def _on_wake_word():
         global WIDGET_STATE
         brain.abort_flag = False
         try:
-            # DIRECT TALK: Multi-turn conversation loop
+            # 1. Immediately speak tone wake greeting
+            if wake_greeting:
+                print(f"[Server] Speaking tone wake greeting: '{wake_greeting}'")
+                WIDGET_STATE["main_text"] = "Tilux"
+                WIDGET_STATE["sub_text"] = "Speaking..."
+                WIDGET_STATE["is_speaking"] = True
+                WIDGET_STATE["speak_id"] = time.time()
+                
+                if WIDGET_CLIENT_CAPS.get("browser_tts", False):
+                    WIDGET_SPEECH_EVENT.clear()
+                    WIDGET_STATE["speak_text"] = wake_greeting
+                    word_count = len(wake_greeting.split())
+                    timeout_sec = max(1.8, (word_count * 0.28) + 1.0)
+                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                else:
+                    speak(wake_greeting)
+                    
+                WIDGET_STATE["is_speaking"] = False
+                time.sleep(0.15)
+
+            # 2. DIRECT TALK: Multi-turn conversation loop
             while not brain.abort_flag:
                 WIDGET_STATE["main_text"] = "Listening..."
                 WIDGET_STATE["sub_text"] = ""
@@ -221,7 +244,7 @@ def _on_wake_word():
                 if reply_text:
                     import re, time
                     clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
-                    WIDGET_STATE["sub_text"] = ""
+                    WIDGET_STATE["sub_text"] = "Speaking..."
                     # Keep main_text displaying the user's transcribed question (do NOT replace with reply_text)
                     WIDGET_STATE["reply_text"] = reply_text
                     WIDGET_STATE["is_speaking"] = True
@@ -237,6 +260,7 @@ def _on_wake_word():
                         speak(reply_text)
                     
                     WIDGET_STATE["is_speaking"] = False
+                    WIDGET_STATE["sub_text"] = ""
                     # Pause 300ms after speaking before seamlessly listening for the next turn
                     time.sleep(0.3)
                 else:

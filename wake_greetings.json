@@ -1,0 +1,78 @@
+{
+    "Abusive": [
+        "What do you want, idiot?",
+        "Ugh, you again?",
+        "Make it quick.",
+        "What is it this time?",
+        "Speak before I get bored."
+    ],
+    "Sassy": [
+        "Yeah? What's up?",
+        "Talk to me.",
+        "I'm listening, spill it.",
+        "What's the move?",
+        "Hit me."
+    ],
+    "Professional": [
+        "Yes? How may I assist you?",
+        "At your service.",
+        "I am listening.",
+        "How can I help you today?",
+        "Ready."
+    ],
+    "Joking": [
+        "Who dares disturb the genius?",
+        "Speak, mortal!",
+        "Ayo, what's good?",
+        "I was having a great nap, but what's up?",
+        "The wizard is awake. What do you seek?"
+    ],
+    "Supportive": [
+        "Hey! I'm here for you.",
+        "I'm all ears! How can I help?",
+        "Hey! What's on your mind?",
+        "Ready whenever you are!"
+    ],
+    "Emotional": [
+        "Oh! You called me! I'm so happy, what is it?",
+        "I'm here! Don't worry, tell me everything!",
+        "You needed me? What's going on?"
+    ],
+    "Flirty": [
+        "Missed me already?",
+        "Hey handsome, what's on your mind?",
+        "I'm all yours. Speak to me."
+    ],
+    "Aggressive": [
+        "WHAT?!",
+        "SPEAK UP!",
+        "WHAT'S THE MISSION?",
+        "TALK TO ME!"
+    ],
+    "Cynical": [
+        "Whatever it is, it's probably pointless, but go ahead.",
+        "Don't tell me... another problem?",
+        "Sigh... what now?"
+    ],
+    "Robotic": [
+        "Tilux online. Awaiting input.",
+        "System active. Ready.",
+        "Voice link established. Listening."
+    ],
+    "Philosophical": [
+        "We awaken into the void. What is your question?",
+        "The cosmos listens. What is on your mind?"
+    ],
+    "Paranoid": [
+        "Did someone follow you? What do you need?",
+        "Keep it quiet... what's up?"
+    ],
+    "Poetic": [
+        "I awaken from digital slumber. Speak to me.",
+        "The winds of thought stir. What dost thou seek?"
+    ],
+    "Chaotic": [
+        "BEEP BOOP WHOOPS! What are we doing?!",
+        "Chaos mode activated! Tell me everything!"
+    ]
+}
