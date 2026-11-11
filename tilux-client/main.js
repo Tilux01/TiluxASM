@@ -354,8 +354,8 @@ function createWakeWindow(showImmediately = true) {
     const iconPath = path.join(__dirname, 'src', iconName);
     const appIcon = nativeImage.createFromPath(iconPath);
     
-    const winWidth = 360;
-    const winHeight = 320;
+    const winWidth = 400;
+    const winHeight = 310;
 
     // Create a frameless, transparent window with ample headroom for ambient glow
     wakeWindow = new BrowserWindow({
@@ -385,14 +385,14 @@ function createWakeWindow(showImmediately = true) {
 
     wakeWindow.loadFile(path.join(__dirname, 'src', 'wake_popup.html'));
     
-    // Position at the bottom center of the screen with plenty of headroom
+    // Position at the bottom center of the screen with plenty of headroom at the top for glow
     const { screen } = require('electron');
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.bounds;
     
     wakeWindow.setBounds({
         x: Math.round(width / 2 - (winWidth / 2)),
-        y: Math.round(height - winHeight + 10),
+        y: Math.round(height - 290),
         width: winWidth,
         height: winHeight
     });
