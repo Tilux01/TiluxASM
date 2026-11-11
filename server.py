@@ -148,12 +148,15 @@ def trigger_open_chat(prompt: str):
 def _on_wake_word():
     global WAKE_WORD_TRIGGERED, WIDGET_STATE, current_widget_proc
     import time
+    print("[Server] _on_wake_word triggered by wake engine!")
     WAKE_WORD_TRIGGERED = True
     socketio.emit("wake_word_detected", {"status": "listening"})
     
     # Abort any ongoing AI generation or speech instantly!
     brain.abort_flag = True
     stop_audio_process()
+    time.sleep(0.05)
+    brain.abort_flag = False
     
     import subprocess
     import threading
@@ -183,6 +186,7 @@ def _on_wake_word():
     
     def background_task(my_proc):
         global WIDGET_STATE
+        brain.abort_flag = False
         try:
             # DIRECT TALK: Multi-turn conversation loop
             while not brain.abort_flag:
