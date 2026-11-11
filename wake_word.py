@@ -57,6 +57,7 @@ class WakeWordEngine:
                 with sd.RawInputStream(samplerate=16000, blocksize=8000, dtype='int16',
                                        channels=1, callback=self._audio_callback):
                     print("[WakeWord] Engine started and listening...")
+                    recognizer.Reset()
                     while self.is_running and not getattr(self, "is_paused", False):
                         try:
                             data = self.q.get(timeout=1)

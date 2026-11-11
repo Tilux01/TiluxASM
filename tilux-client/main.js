@@ -344,6 +344,7 @@ let wakeWindow = null;
 function createWakeWindow(showImmediately = true) {
     if (wakeWindow && !wakeWindow.isDestroyed()) {
         if (showImmediately) {
+            wakeWindow.webContents.reload();
             wakeWindow.show();
             wakeWindow.focus();
         }

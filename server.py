@@ -184,31 +184,33 @@ def _on_wake_word():
     def background_task(my_proc):
         global WIDGET_STATE
         try:
-            # DIRECT TALK: Open microphone instantly
-            WIDGET_STATE["main_text"] = "Listening..."
-            WIDGET_STATE["sub_text"] = "Listening..."
-            brain.abort_flag = False
-            
-            def on_speech_captured():
-                global WIDGET_STATE
-                WIDGET_STATE["main_text"] = "Processing..."
-                WIDGET_STATE["sub_text"] = "Thinking..."
-                print("[Server] User speech captured. Switched to Processing immediately.")
+            # DIRECT TALK: Multi-turn conversation loop
+            while not brain.abort_flag:
+                WIDGET_STATE["main_text"] = "Listening..."
+                WIDGET_STATE["sub_text"] = ""
+                WIDGET_STATE["is_speaking"] = False
+                
+                def on_speech_captured():
+                    global WIDGET_STATE
+                    WIDGET_STATE["sub_text"] = "Thinking..."
+                    print("[Server] User speech captured. Transcribing...")
 
-            text = listen(on_recording_done=on_speech_captured)
-            print(f"[Server] Voice capture complete. Recognized text: '{text}'")
-            
-            if text:
-                WIDGET_STATE["main_text"] = "Processing..."
+                text = listen(on_recording_done=on_speech_captured)
+                print(f"[Server] Voice capture complete. Recognized text: '{text}'")
+                
+                if brain.abort_flag or not text:
+                    break
+                
+                # Show ONLY the user's voice transcribed text on screen
+                WIDGET_STATE["main_text"] = text
                 WIDGET_STATE["sub_text"] = "Thinking..."
                 
                 brain.abort_flag = False
-                brain.clear_history()
                 
                 reply_data = brain.process_input(text, [], is_voice=True)
                 
                 if brain.abort_flag:
-                    return
+                    break
                     
                 reply_text = reply_data.get("reply", "")
                 
@@ -216,6 +218,7 @@ def _on_wake_word():
                     import re, time
                     clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
                     WIDGET_STATE["sub_text"] = ""
+                    # Keep main_text displaying the user's transcribed question (do NOT replace with reply_text)
                     WIDGET_STATE["reply_text"] = reply_text
                     WIDGET_STATE["is_speaking"] = True
                     WIDGET_STATE["speak_id"] = time.time()
@@ -224,19 +227,20 @@ def _on_wake_word():
                         WIDGET_SPEECH_EVENT.clear()
                         WIDGET_STATE["speak_text"] = reply_text
                         word_count = len(clean_widget_text.split())
-                        timeout_sec = max(4.0, (word_count * 0.3) + 2.0)
+                        timeout_sec = max(3.5, (word_count * 0.28) + 1.5)
                         WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                     else:
                         speak(reply_text)
                     
                     WIDGET_STATE["is_speaking"] = False
-                    WIDGET_STATE["main_text"] = "Ready"
-                    WIDGET_STATE["sub_text"] = ""
-            else:
-                if not brain.abort_flag:
-                    WIDGET_STATE["main_text"] = ""
-                    WIDGET_STATE["sub_text"] = ""
+                    # Pause 300ms after speaking before seamlessly listening for the next turn
+                    time.sleep(0.3)
+                else:
+                    break
         finally:
+            WIDGET_STATE["main_text"] = ""
+            WIDGET_STATE["sub_text"] = ""
+            WIDGET_STATE["is_speaking"] = False
             import wake_word
             wake_word.resume_wake_word()
                 
@@ -408,9 +412,12 @@ def stop_generation():
         return jsonify({"error": "Unauthorized"}), 401
     brain.abort_flag = True
     brain.is_processing = False
-    brain.current_status = "Idle"
+    brain.current_status = ""
     brain.current_events = []
     stop_audio_process()
+    WIDGET_SPEECH_EVENT.set()
+    import wake_word
+    wake_word.resume_wake_word()
     return jsonify({"status": "stopped"})
 
 

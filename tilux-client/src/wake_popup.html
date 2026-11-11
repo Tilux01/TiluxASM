@@ -246,26 +246,15 @@
             lastSpokenId = speakId;
 
             const cleanText = cleanSpokenText(rawText);
-            const mainEl = document.getElementById('main-text');
             const orb = document.getElementById('orb');
 
-            if (!cleanText) {
-                if (mainEl) mainEl.innerText = "";
-                return;
-            }
-
-            if (mainEl) {
-                mainEl.innerText = cleanText;
-            }
+            if (!cleanText) return;
 
             if (!hasSpeech || voices.length === 0) {
                 if (orb) orb.style.animationDuration = "0.7s";
                 setTimeout(() => {
                     if (orb) orb.style.animationDuration = "2s";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-                    setTimeout(() => {
-                        dismissWidget();
-                    }, 4000);
                 }, Math.min(5000, Math.max(1500, cleanText.split(' ').length * 280)));
                 return;
             }
@@ -290,26 +279,17 @@
                 utterance.onend = () => {
                     if (orb) orb.style.animationDuration = "2s";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-                    setTimeout(() => {
-                        dismissWidget();
-                    }, 4000);
                 };
 
                 utterance.onerror = () => {
                     if (orb) orb.style.animationDuration = "2s";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-                    setTimeout(() => {
-                        dismissWidget();
-                    }, 2500);
                 };
 
                 window.speechSynthesis.speak(utterance);
             } catch(e) {
                 if (orb) orb.style.animationDuration = "2s";
                 fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-                setTimeout(() => {
-                    dismissWidget();
-                }, 2500);
             }
         }
 
@@ -337,18 +317,17 @@
                     speakWithBrowserSync(data.speak_text, data.speak_id);
                 } else if (data.reply_text && data.speak_id && data.speak_id !== lastSpokenId) {
                     lastSpokenId = data.speak_id;
-                    const cleanText = cleanSpokenText(data.reply_text);
                     const orb = document.getElementById('orb');
                     if (orb) orb.style.animationDuration = "0.7s";
-                    if (mainEl) mainEl.innerText = cleanText;
                     setTimeout(() => {
                         if (orb) orb.style.animationDuration = "2s";
                     }, 2500);
-                } else if (!data.is_speaking) {
-                    if (data.main_text !== fullMainText) {
-                        fullMainText = data.main_text;
-                        if (mainEl) mainEl.innerText = fullMainText;
-                    }
+                }
+
+                // Only show voice status or user transcribed speech in main-text (never show AI response text)
+                if (data.main_text !== fullMainText) {
+                    fullMainText = data.main_text;
+                    if (mainEl) mainEl.innerText = fullMainText;
                 }
 
                 let sub = data.sub_text || "";
