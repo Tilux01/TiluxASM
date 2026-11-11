@@ -599,7 +599,7 @@ class Brain:
         self.history = [
             {"role": "system", "content": get_persona(is_voice=False)}
         ]
-        self.current_status = "Thinking..."
+        self.current_status = ""
         self.current_events = []
         self.on_event_update = None
 
@@ -1037,6 +1037,7 @@ class Brain:
                 if self.abort_flag:
                     self.abort_flag = False
                     self._clean_aborted_history()
+                    self.current_status = ""
                     return {"reply": "Stopped by user.", "steps": steps_taken, "events": self.current_events}
 
                     
@@ -1523,6 +1524,7 @@ class Brain:
             return {"reply": clean_error, "steps": steps_taken, "events": self.current_events}
         finally:
             self.is_processing = False
+            self.current_status = ""
             self.current_events = []
             self._repair_history()
             try:

@@ -263,6 +263,9 @@
                 setTimeout(() => {
                     if (orb) orb.style.animationDuration = "2s";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
+                    setTimeout(() => {
+                        dismissWidget();
+                    }, 4000);
                 }, Math.min(5000, Math.max(1500, cleanText.split(' ').length * 280)));
                 return;
             }
@@ -287,19 +290,30 @@
                 utterance.onend = () => {
                     if (orb) orb.style.animationDuration = "2s";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
+                    setTimeout(() => {
+                        dismissWidget();
+                    }, 4000);
                 };
 
                 utterance.onerror = () => {
                     if (orb) orb.style.animationDuration = "2s";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
+                    setTimeout(() => {
+                        dismissWidget();
+                    }, 2500);
                 };
 
                 window.speechSynthesis.speak(utterance);
             } catch(e) {
                 if (orb) orb.style.animationDuration = "2s";
                 fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
+                setTimeout(() => {
+                    dismissWidget();
+                }, 2500);
             }
         }
+
+        let emptyStateCount = 0;
 
         async function updateState() {
             if (isDismissed) return;
@@ -307,6 +321,16 @@
                 const res = await fetch('http://127.0.0.1:8932/api/widget_state');
                 const data = await res.json();
                 const mainEl = document.getElementById('main-text');
+
+                if (!data.main_text && !data.sub_text && !data.is_speaking) {
+                    emptyStateCount++;
+                    if (emptyStateCount > 35) {
+                        dismissWidget();
+                        return;
+                    }
+                } else {
+                    emptyStateCount = 0;
+                }
 
                 // 1. If server sent speech request with speak_id
                 if (data.speak_text && data.speak_id && data.speak_id !== lastSpokenId) {

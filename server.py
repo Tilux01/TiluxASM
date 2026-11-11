@@ -121,10 +121,12 @@ def widget_speech_done_endpoint():
 
 @app.route("/api/widget_state", methods=["GET"])
 def widget_state_endpoint():
-    # Merge the current brain status into the sub_text if it's thinking
+    # Only mirror brain status if the brain is actively processing
     sub = WIDGET_STATE.get("sub_text", "")
-    if WIDGET_STATE.get("main_text") != "Listening...":
-        sub = getattr(brain, "current_status", sub)
+    if getattr(brain, "is_processing", False) and WIDGET_STATE.get("main_text") != "Listening...":
+        b_status = getattr(brain, "current_status", "")
+        if b_status:
+            sub = b_status
     return jsonify({
         "main_text": WIDGET_STATE.get("main_text", ""),
         "sub_text": sub,
@@ -182,7 +184,7 @@ def _on_wake_word():
     def background_task(my_proc):
         global WIDGET_STATE
         try:
-            # DIRECT TALK (Gemini Live style): Open microphone instantly without speech delay
+            # DIRECT TALK: Open microphone instantly
             WIDGET_STATE["main_text"] = "Listening..."
             WIDGET_STATE["sub_text"] = "Listening..."
             brain.abort_flag = False
@@ -195,10 +197,6 @@ def _on_wake_word():
 
             text = listen(on_recording_done=on_speech_captured)
             print(f"[Server] Voice capture complete. Recognized text: '{text}'")
-            
-            # INSTANTLY release the mic so user can speak again while AI thinks/speaks!
-            import wake_word
-            wake_word.resume_wake_word()
             
             if text:
                 WIDGET_STATE["main_text"] = "Processing..."

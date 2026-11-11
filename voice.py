@@ -348,22 +348,20 @@ def listen(on_recording_done=None) -> str:
     import numpy as np
     import sounddevice as sd
     
-    # 0.08 seconds per chunk (1280 samples at 16kHz) for ultra-rapid reactive sampling
+    # 0.08 seconds per chunk (1280 samples at 16kHz) for rapid reactive sampling
     frames_per_chunk = 1280
     chunk_sec = frames_per_chunk / sample_rate
     
-    INITIAL_TIMEOUT_CHUNKS = int(3.2 / chunk_sec)   # Abort if user says nothing for 3.2s
-    SILENCE_CUTOFF_CHUNKS = int(0.40 / chunk_sec)    # Stop recording 400ms after user finishes sentence
-    MAX_RECORD_CHUNKS = int(10.0 / chunk_sec)        # Maximum 10 seconds of speech
+    INITIAL_TIMEOUT_CHUNKS = int(5.0 / chunk_sec)   # Allow up to 5s for user to begin speaking
+    SILENCE_CUTOFF_CHUNKS = int(0.65 / chunk_sec)   # Natural sentence-end detection (650ms silence)
+    MAX_RECORD_CHUNKS = int(12.0 / chunk_sec)       # Maximum 12 seconds total speech
     
     audio_buffer = []
     has_spoken = False
     silence_chunks_count = 0
-    ambient_samples = []
     
-    # Default baseline thresholds
-    speech_threshold = 0.014
-    silence_threshold = 0.009
+    speech_threshold = 0.012
+    silence_threshold = 0.008
     
     try:
         with noalsaerr():
@@ -375,14 +373,6 @@ def listen(on_recording_done=None) -> str:
                     
                     rms = float(np.sqrt(np.mean(chunk**2)))
                     
-                    # Calibrate ambient noise floor dynamically during the first 3 chunks (240ms)
-                    if chunk_idx < 3:
-                        ambient_samples.append(rms)
-                        if chunk_idx == 2:
-                            avg_ambient = float(np.mean(ambient_samples))
-                            speech_threshold = max(0.012, avg_ambient * 1.8)
-                            silence_threshold = max(0.008, avg_ambient * 1.25)
-                    
                     if rms >= speech_threshold:
                         has_spoken = True
                         silence_chunks_count = 0
@@ -392,7 +382,7 @@ def listen(on_recording_done=None) -> str:
                         else:
                             silence_chunks_count = max(0, silence_chunks_count - 1)
                             
-                    # 1. Responsive Sentence Drop: Stop immediately 400ms after speaking ends
+                    # 1. Stop recording when silence follows speech
                     if has_spoken and silence_chunks_count >= SILENCE_CUTOFF_CHUNKS:
                         print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing instantly.")
                         if on_recording_done:
@@ -402,9 +392,9 @@ def listen(on_recording_done=None) -> str:
                                 pass
                         break
                         
-                    # 2. Fast Initial Timeout: If user triggered wake word but didn't speak, exit in 3s
+                    # 2. Timeout if user triggered wake word but never spoke
                     if not has_spoken and chunk_idx >= INITIAL_TIMEOUT_CHUNKS:
-                        print("[Voice] Initial timeout: No speech detected within 3.2s.")
+                        print("[Voice] Initial timeout: No speech detected within 5s.")
                         return ""
                         
         if not has_spoken or not audio_buffer:
