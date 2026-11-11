@@ -1198,7 +1198,8 @@ class Brain:
 
                     try:
                         messages_for_api = self._sanitize_messages_for_api(pruned_history)
-                        tools_to_pass = None if is_voice else TOOLS
+                        voice_tools = [t for t in TOOLS if t.get("function", {}).get("name") in ["open_workspace_chatbox", "execute_bash_command"]]
+                        tools_to_pass = voice_tools if is_voice else TOOLS
                         response = active_client.chat.completions.create(
                             model=active_model,
                             messages=messages_for_api,
@@ -1226,7 +1227,8 @@ class Brain:
 
                     active_client = self.client
                     active_model = "deepseek-flash"
-                    tools_to_pass = None if is_voice else TOOLS
+                    voice_tools = [t for t in TOOLS if t.get("function", {}).get("name") in ["open_workspace_chatbox", "execute_bash_command"]]
+                    tools_to_pass = voice_tools if is_voice else TOOLS
                     response = active_client.chat.completions.create(
                         model=active_model,
                         messages=text_only_history,
