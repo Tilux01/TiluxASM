@@ -245,7 +245,7 @@ function createWindow () {
             devTools: false // Completely disables DevTools / console
         },
         autoHideMenuBar: true,
-        title: "Tilux Assistant",
+        title: "Tilux",
         icon: !appIcon.isEmpty() ? appIcon : iconPath
     });
 

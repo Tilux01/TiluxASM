@@ -60,6 +60,17 @@ class HistoryManager:
     def get_session(self, session_id):
         for s in self.sessions:
             if s["id"] == session_id:
+                # If session ended abruptly while user message was pending (e.g. app closed)
+                msgs = s.get("messages", [])
+                if msgs and msgs[-1].get("sender") == "User":
+                    msgs.append({
+                        "sender": "AI",
+                        "text": "Stopped by user.",
+                        "timestamp": time.strftime("%H:%M"),
+                        "events": [],
+                        "attachments": []
+                    })
+                    self._save()
                 return s
         return None
 

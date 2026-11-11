@@ -445,9 +445,21 @@ def stop_generation():
     brain.current_events = []
     stop_audio_process()
     WIDGET_SPEECH_EVENT.set()
+
+    # Record Stopped by user in active session history if awaiting AI response
+    try:
+        active_sid = getattr(brain, "current_session_id", None) or history_manager.current_session_id
+        if active_sid:
+            sess = history_manager.get_session(active_sid)
+            if sess and sess.get("messages") and sess["messages"][-1].get("sender") == "User":
+                history_manager.add_message(active_sid, "AI", "Stopped by user.", events=[])
+    except Exception as e:
+        print(f"[Stop Generation History Error] {e}")
+
     import wake_word
     wake_word.resume_wake_word()
     return jsonify({"status": "stopped"})
+
 
 
 

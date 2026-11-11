@@ -608,18 +608,21 @@ document.addEventListener('DOMContentLoaded', () => {
             setReply: function(text) {
                 const container = document.getElementById(`events-container-${loadingId}`);
                 if (container) {
-                    const runningEls = container.querySelectorAll('.event-running');
-                    runningEls.forEach(el => {
-                        const parent = el.closest('.ai-event');
-                        if (parent && parent.dataset.completed !== "true") {
-                            parent.remove();
-                        }
-                    });
-
-                    if (container.children.length === 0) {
+                    // Hide intermediate thinking and command steps once final response is given
+                    if (text && text.trim()) {
+                        container.innerHTML = '';
                         container.style.display = 'none';
                     } else {
-                        container.style.display = '';
+                        const runningEls = container.querySelectorAll('.event-running');
+                        runningEls.forEach(el => {
+                            const parent = el.closest('.ai-event');
+                            if (parent && parent.dataset.completed !== "true") {
+                                parent.remove();
+                            }
+                        });
+                        if (container.children.length === 0) {
+                            container.style.display = 'none';
+                        }
                     }
                 }
                 const textResponse = document.getElementById(`text-response-${loadingId}`);
@@ -632,19 +635,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setError: function(text) {
                 const container = document.getElementById(`events-container-${loadingId}`);
                 if (container) {
-                    const runningEls = container.querySelectorAll('.event-running');
-                    runningEls.forEach(el => {
-                        const parent = el.closest('.ai-event');
-                        if (parent && parent.dataset.completed !== "true") {
-                            parent.remove();
-                        }
-                    });
-
-                    if (container.children.length === 0) {
-                        container.style.display = 'none';
-                    } else {
-                        container.style.display = '';
-                    }
+                    container.innerHTML = '';
+                    container.style.display = 'none';
                 }
                 const textResponse = document.getElementById(`text-response-${loadingId}`);
                 if (textResponse) {
@@ -658,15 +650,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let isProcessingText = false;
     let currentAbortController = null;
+    let currentAiMessage = null;
     let statusInterval = null;
 
     async function stopGeneration() {
         if (!isProcessingText) return;
+
         
         // Abort the fetch request
         if (currentAbortController) {
             currentAbortController.abort();
             currentAbortController = null;
+        }
+        
+        // Show Stopped by user on active message
+        if (currentAiMessage) {
+            currentAiMessage.setError("Stopped by user.");
+            currentAiMessage = null;
         }
         
         // Tell the backend to stop
@@ -730,6 +730,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const loadingId = Date.now();
         const aiMessage = createAiMessage(loadingId);
+        currentAiMessage = aiMessage;
 
         let pollStatus = true;
         statusInterval = setInterval(async () => {
