@@ -186,50 +186,42 @@ def speak(text: str):
                 try:
                     voice_obj = get_piper_voice(tts_voice)
                     if voice_obj:
-                        global _active_audio_proc
-                        sample_rate = str(getattr(voice_obj.config, "sample_rate", 22050))
-                        ffplay_proc = subprocess.Popen(
-                            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-f", "s16le", "-ar", sample_rate, "-ac", "1", "-i", "-"],
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL
-                        )
-                        _active_audio_proc = ffplay_proc
+                        import sounddevice as sd
+                        import numpy as np
+                        import time
+                        sample_rate = getattr(voice_obj.config, "sample_rate", 22050)
+                        
+                        # Synthesize int16 audio chunks
+                        chunks = []
                         for audio_chunk in voice_obj.synthesize(clean_text):
                             import sys
                             if "server" in sys.modules:
                                 srv = sys.modules["server"]
                                 if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
-                                    try:
-                                        ffplay_proc.kill()
-                                    except:
-                                        pass
-                                    _active_audio_proc = None
                                     return
-                            try:
-                                ffplay_proc.stdin.write(audio_chunk.audio_int16_bytes)
-                                ffplay_proc.stdin.flush()
-                            except:
-                                break
-                        try:
-                            ffplay_proc.stdin.close()
-                        except (BrokenPipeError, OSError):
-                            pass
+                            chunks.append(audio_chunk.audio_int16_bytes)
+                            
+                        if not chunks:
+                            return
+                            
+                        audio_np = np.frombuffer(b"".join(chunks), dtype=np.int16)
                         
-                        # Non-blocking poll so we can abort instantly if window closes or user cancels
-                        import time
-                        while ffplay_proc.poll() is None:
+                        # Play directly via native sounddevice (zero external ffplay dependency)
+                        sd.stop()
+                        sd.play(audio_np, samplerate=sample_rate)
+                        
+                        # Wait for playback completion with 40ms instant abort check
+                        duration_sec = len(audio_np) / float(sample_rate)
+                        start_time = time.time()
+                        while (time.time() - start_time) < (duration_sec + 0.15):
                             import sys
                             if "server" in sys.modules:
                                 srv = sys.modules["server"]
                                 if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
-                                    try:
-                                        ffplay_proc.kill()
-                                    except:
-                                        pass
-                                    break
+                                    sd.stop()
+                                    return
                             time.sleep(0.04)
-                        _active_audio_proc = None
+                        sd.stop()
                     else:
                         speak_os_fallback(clean_text)
                 except Exception as e:
