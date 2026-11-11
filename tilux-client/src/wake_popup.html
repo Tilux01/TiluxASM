@@ -333,8 +333,12 @@
                 let sub = data.sub_text || "";
                 if (data.is_speaking || sub === "Speaking...") {
                     sub = "Speaking...";
+                    if (subEl) subEl.style.color = "#c084fc";
                 } else if (sub.toLowerCase().includes("ran a command") || sub.includes("Running:") || sub.includes("Tool:")) {
                     sub = "Working on it...";
+                    if (subEl) subEl.style.color = "#d1d5db";
+                } else {
+                    if (subEl) subEl.style.color = "#d1d5db";
                 }
                 const subEl = document.getElementById('sub-text');
                 if (subEl) subEl.innerText = sub;
@@ -343,7 +347,7 @@
                 if (orb) {
                     if (data.main_text === "Listening...") {
                         orb.style.animationDuration = "1.5s";
-                    } else if (data.main_text === "Processing..." || data.sub_text === "Thinking..." || data.sub_text === "Transcribing voice...") {
+                    } else if (data.main_text === "Transcribing..." || data.main_text === "Processing..." || data.sub_text === "Thinking..." || data.sub_text === "Transcribing voice...") {
                         orb.style.animationDuration = "0.4s";
                     } else if (data.is_speaking) {
                         orb.style.animationDuration = "0.7s";

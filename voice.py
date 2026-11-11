@@ -411,10 +411,8 @@ def listen(on_recording_done=None) -> str:
     import numpy as np
     import sounddevice as sd
     
-    SPEECH_THRESHOLD = 0.010    # Amplitude threshold to detect speech
-    SILENCE_THRESHOLD = 0.006   # Amplitude threshold for trailing silence
-    SILENCE_DURATION = 0.40     # Seconds of silence after speech to finish recording (rapid 400ms cutoff)
-    MAX_DURATION = 14.0         # Max seconds of total recording
+    SILENCE_DURATION = 0.40     # Seconds of trailing silence to finalize recording
+    MAX_DURATION = 10.0         # Max seconds of total recording
     INITIAL_TIMEOUT = 5.0       # Max seconds to wait for speech to begin
     
     frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
@@ -427,6 +425,12 @@ def listen(on_recording_done=None) -> str:
     silence_chunks_count = 0
     has_spoken = False
     
+    # Dynamic Adaptive VAD: calibrate against actual room/mic noise floor
+    ambient_samples = []
+    dynamic_speech_threshold = 0.030
+    dynamic_silence_threshold = 0.018
+    is_calibrated = False
+    
     try:
         with noalsaerr():
             with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
@@ -437,16 +441,27 @@ def listen(on_recording_done=None) -> str:
                     
                     rms = float(np.sqrt(np.mean(chunk**2)))
                     
-                    if rms >= SPEECH_THRESHOLD:
+                    # 1. Calibrate baseline from first 2-3 ambient chunks
+                    if not is_calibrated:
+                        ambient_samples.append(rms)
+                        if len(ambient_samples) >= 2:
+                            ambient_floor = float(np.median(ambient_samples))
+                            dynamic_speech_threshold = max(0.025, (ambient_floor * 1.35) + 0.008)
+                            dynamic_silence_threshold = max(0.015, (ambient_floor * 1.15) + 0.003)
+                            is_calibrated = True
+                    
+                    # 2. Track speech start
+                    if rms >= dynamic_speech_threshold:
                         has_spoken = True
                         silence_chunks_count = 0
                     elif has_spoken:
-                        if rms <= SILENCE_THRESHOLD:
+                        # 3. Track silence cutoff once user stops talking
+                        if rms <= dynamic_silence_threshold:
                             silence_chunks_count += 1
                         else:
                             silence_chunks_count = max(0, silence_chunks_count - 1)
                             
-                    # 1. Stop recording when trailing silence follows speech
+                    # 4. Immediate cutoff as soon as trailing silence is reached
                     if has_spoken and silence_chunks_count >= max_silence_chunks:
                         print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing instantly.")
                         if on_recording_done:
@@ -456,7 +471,7 @@ def listen(on_recording_done=None) -> str:
                                 pass
                         break
                         
-                    # 2. Timeout if user triggered wake word but never spoke
+                    # 5. Timeout if user triggered wake word but never spoke
                     if not has_spoken and chunk_idx >= initial_timeout_chunks:
                         print("[Voice] Initial timeout: No speech detected within 5s.")
                         return ""

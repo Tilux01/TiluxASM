@@ -195,8 +195,8 @@ def _on_wake_word():
             # 1. Immediately speak tone wake greeting
             if wake_greeting:
                 print(f"[Server] Speaking tone wake greeting: '{wake_greeting}'")
-                WIDGET_STATE["main_text"] = "Tilux"
-                WIDGET_STATE["sub_text"] = "Speaking..."
+                WIDGET_STATE["main_text"] = "Speaking..."
+                WIDGET_STATE["sub_text"] = ""
                 WIDGET_STATE["is_speaking"] = True
                 WIDGET_STATE["speak_id"] = time.time()
                 
@@ -220,7 +220,8 @@ def _on_wake_word():
                 
                 def on_speech_captured():
                     global WIDGET_STATE
-                    WIDGET_STATE["sub_text"] = "Thinking..."
+                    WIDGET_STATE["main_text"] = "Transcribing..."
+                    WIDGET_STATE["sub_text"] = ""
                     print("[Server] User speech captured. Transcribing...")
 
                 text = listen(on_recording_done=on_speech_captured)
