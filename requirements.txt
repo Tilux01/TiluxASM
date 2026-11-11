@@ -5,6 +5,7 @@ psutil>=5.9.8
 openai>=1.109.1
 python-dotenv>=1.2.3
 faster-whisper
+SpeechRecognition
 edge-tts>=7.2.8
 qrcode>=8.2
 pyngrok>=8.1.2

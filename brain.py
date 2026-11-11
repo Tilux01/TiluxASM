@@ -1188,10 +1188,11 @@ class Brain:
 
                     try:
                         messages_for_api = self._sanitize_messages_for_api(pruned_history)
+                        tools_to_pass = None if is_voice else TOOLS
                         response = active_client.chat.completions.create(
                             model=active_model,
                             messages=messages_for_api,
-                            tools=TOOLS
+                            tools=tools_to_pass
                         )
                     except Exception as primary_err:
                         raise primary_err
@@ -1215,10 +1216,11 @@ class Brain:
 
                     active_client = self.client
                     active_model = "deepseek-flash"
+                    tools_to_pass = None if is_voice else TOOLS
                     response = active_client.chat.completions.create(
                         model=active_model,
                         messages=text_only_history,
-                        tools=TOOLS
+                        tools=tools_to_pass
                     )
                 
                 if hasattr(response, 'usage') and response.usage:
@@ -1456,6 +1458,8 @@ class Brain:
                 else:
                     # Model produced a final text response
                     reply = sanitize_text(message.content or "")
+                    if is_voice and any(k in reply.lower() for k in ["chatbox", "workspace"]):
+                        self.pending_heavy_task = text
                     think_event["status"] = "completed"
                     if "start_time" in think_event:
                         dur = round(time.time() - think_event["start_time"], 1)

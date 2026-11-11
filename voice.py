@@ -352,7 +352,7 @@ def listen(on_recording_done=None) -> str:
     
     SPEECH_THRESHOLD = 0.010    # Amplitude threshold to detect speech
     SILENCE_THRESHOLD = 0.006   # Amplitude threshold for trailing silence
-    SILENCE_DURATION = 0.65     # Seconds of silence after speech to finish recording
+    SILENCE_DURATION = 0.40     # Seconds of silence after speech to finish recording (rapid 400ms cutoff)
     MAX_DURATION = 14.0         # Max seconds of total recording
     INITIAL_TIMEOUT = 5.0       # Max seconds to wait for speech to begin
     
@@ -403,9 +403,26 @@ def listen(on_recording_done=None) -> str:
         if not has_spoken or not audio_buffer:
             return ""
             
-        print("[Voice] Faster-Whisper transcribing speech...")
         audio_np = np.concatenate(audio_buffer)
-        
+
+        # 1. Ultra-Fast Cloud Speech Recognition (~200-400ms, accurate with natural accents)
+        try:
+            import speech_recognition as sr
+            int16_bytes = (np.clip(audio_np, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+            audio_data = sr.AudioData(int16_bytes, sample_rate, 2)
+            r = sr.Recognizer()
+            try:
+                text = r.recognize_google(audio_data, language="en-US").strip()
+            except Exception:
+                text = r.recognize_google(audio_data, language="en-NG").strip()
+            if text:
+                print(f"[Voice] Fast STT transcript: '{text}'")
+                return text
+        except Exception as fast_err:
+            print(f"[Voice] Fast STT unavailable or failed ({fast_err}). Using Faster-Whisper fallback...")
+
+        # 2. Resilient Offline Fallback (Faster-Whisper on-device)
+        print("[Voice] Faster-Whisper transcribing speech...")
         segments, info = model.transcribe(
             audio_np, 
             beam_size=1, 
