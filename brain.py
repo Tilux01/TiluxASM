@@ -102,12 +102,19 @@ def get_persona(is_voice=False):
 - App Killing: Use `killall <app>` or `pkill -f <app>` via terminal.
 - File Paths: Linux uses `/` for paths."""
     
-    voice_opt = """- **VOICE DIRECT TALK MODE (RAPID WIT & ACTION)**:
-  - You are speaking directly to the user out loud. Speed, intelligence, and razor-sharp wit are paramount.
+    voice_opt = """- **VOICE DIRECT TALK PROTOCOL (RAPID WIT & ACTION)**:
+  - You are in voice direct-talk mode speaking out loud directly to the user.
   - Deliver rapid, punchy, witty replies in 1 to 2 crisp sentences max.
-  - NEVER output markdown formatting, lists, tables, code blocks, or technical logs in voice mode.
-  - For quick actions (music/Spotify playback, volume, launching applications, calculations, quick facts, witty banter): Execute or answer immediately with wit.
-  - For HEAVY or COMPLEX tasks (building an app/website, coding, deep research, or editing files): Do NOT attempt it in voice mode. Instead, reply with quick wit that this requires deep workspace reasoning, and ask for permission to open the workspace chatbox (e.g. "That requires deeper reasoning and workspace tools. Would you like me to open the workspace chatbox to handle it for you?").
+  - NEVER output markdown formatting, lists, tables, code blocks, or technical logs in voice responses.
+  - For quick actions (music/Spotify playback, volume, launching apps, calculations, quick facts, witty banter): Execute the action immediately or answer with quick wit!
+  - INTELLIGENT INTENT EVALUATION FOR HEAVY WORK (DO NOT USE RIGID KEYWORD ASSUMPTIONS):
+    - Evaluate what the user actually wants semantically.
+    - If the user genuinely asks for a heavy, complex, or multi-step task (e.g. building software, writing a full application/website, extensive coding, or multi-step deep research):
+      DO NOT output code or long text in voice mode. Instead, reply in 1 crisp, witty sentence explaining that this requires deep workspace reasoning, and ask for permission to open the workspace chatbox (e.g. "Building that takes deep workspace reasoning and code tools. Would you like me to open the workspace chatbox to handle it for you?").
+    - When the user confirms (e.g. "yes", "sure", "open it", "go ahead", "do it"):
+      Call the `open_workspace_chatbox` tool with the user's task prompt, and say: "Opening your workspace chatbox now."
+    - If the user's prompt is a normal question or conversation that simply includes words like "app", "code", or "build" (e.g. "what is your favorite app?", "how does Python code run?", "can you build a habit of reading books?"):
+      DO NOT ask to open the chatbox! Answer their question directly, intelligently, and concisely with quick wit!
 """ if is_voice else ""
 
     return f"""
@@ -280,6 +287,23 @@ interpreter.chat("<YOUR TASK HERE>")
 """
 
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "open_workspace_chatbox",
+            "description": "Opens the main desktop workspace chatbox, focuses it, and submits the prompt for deep reasoning, multi-step execution, and software development when the user confirms.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "The full user request/task to execute in the workspace chatbox"
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -625,24 +649,6 @@ class Brain:
                 return True
         return False
 
-    def _is_heavy_task(self, text: str) -> bool:
-        """Determines if a task requires deep workspace reasoning and should be routed to the chatbox."""
-        if not text or not isinstance(text, str):
-            return False
-        if self._is_software_request(text):
-            return True
-        t_lower = text.lower()
-        heavy_keywords = [
-            "write an essay", "write a story", "research", "analyze in detail",
-            "detailed report", "business plan", "audit", "debug this repo",
-            "scrape", "crawl", "deep search", "benchmark", "full breakdown",
-            "write code", "fix the code", "refactor"
-        ]
-        for kw in heavy_keywords:
-            if kw in t_lower:
-                return True
-        return False
-
     def _sanitize_messages_for_api(self, messages):
         """
         Guarantees strict compliance with OpenAI / DeepSeek API specification:
@@ -836,15 +842,6 @@ class Brain:
                     
                     return {
                         "reply": "Opening your workspace chatbox now.",
-                        "steps": [],
-                        "events": []
-                    }
-
-                # 2. Is this request heavy (software creation, app/web building, deep research)?
-                if self._is_heavy_task(text):
-                    self.pending_heavy_task = text
-                    return {
-                        "reply": "That requires deeper reasoning and workspace tools. Would you like me to open the workspace chatbox to handle it for you?",
                         "steps": [],
                         "events": []
                     }
@@ -1283,7 +1280,17 @@ class Brain:
                         self.current_events.append(tool_event)
                         event_id += 1
                             
-                        if function_name == "execute_bash_command":
+                        if function_name == "open_workspace_chatbox":
+                            p = args.get("prompt", "")
+                            self.current_status = "Opening Workspace Chatbox..."
+                            try:
+                                import server
+                                server.trigger_open_chat(p)
+                                result = "Workspace chatbox opened and prompt submitted successfully."
+                            except Exception as e:
+                                result = f"Error opening chatbox: {e}"
+                            steps_taken.append("Opened workspace chatbox")
+                        elif function_name == "execute_bash_command":
                             cmd = args.get("command", "")
                             self.current_status = f"Bash: {cmd[:60]}{'...' if len(cmd) > 60 else ''}"
                             result = execute_bash_command(cmd)
