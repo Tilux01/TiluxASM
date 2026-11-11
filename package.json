@@ -1,0 +1,8 @@
+{
+  "name": "tilux-asm",
+  "version": "1.0.0",
+  "description": "Tilux Automation AI",
+  "scripts": {
+    "start": "npm start --prefix tilux-client"
+  }
+}
