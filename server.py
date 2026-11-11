@@ -91,7 +91,11 @@ def load_settings():
 def save_settings(data):
     with open(SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=4)
-    firebase_sync.sync_settings(HOST_ID, data)
+    try:
+        from cloud_bridge import cloud_bridge
+        cloud_bridge.sync_settings(HOST_ID, data)
+    except Exception:
+        pass
 
 WAKE_WORD_TRIGGERED = False
 last_ui_poll_time = 0
@@ -752,7 +756,11 @@ def regenerate_pair_token():
         print(f"[Warning] Could not update pair_token.txt: {e}")
     
     pub_url = get_public_url()
-    firebase_sync.sync_host_state(HOST_ID, PAIR_TOKEN, pub_url, wake_token=WAKE_TOKEN)
+    try:
+        from cloud_bridge import cloud_bridge
+        cloud_bridge.sync_host_state(HOST_ID, PAIR_TOKEN, pub_url, wake_token=WAKE_TOKEN)
+    except Exception:
+        pass
     return jsonify({
         "status": "success",
         "host_id": HOST_ID,
@@ -966,7 +974,7 @@ def on_brain_event_update(events, status, session_id=None):
 brain.on_event_update = on_brain_event_update
 
 
-from firebase_sync import firebase_sync
+from cloud_bridge import cloud_bridge
 
 from usage_tracker import usage_tracker
 
@@ -1147,13 +1155,13 @@ if __name__ == "__main__":
 
     psutil.cpu_percent(interval=0.1)
     usage_tracker.socketio = socketio
-    # Sync wallet balance from Firebase on startup in case of mobile top-up or local wipe
+    # Sync wallet balance from Cloud state on startup in case of mobile top-up or local wipe
     threading.Thread(target=usage_tracker.sync_from_cloud, args=(HOST_ID,), daemon=True).start()
     tunnel_manager.start_tunnel(get_host_info)
-    firebase_sync.start_heartbeat_loop(get_public_url, get_host_info)
+    cloud_bridge.start_heartbeat_loop(get_public_url, get_host_info)
     
     settings = load_settings()
-    firebase_sync.sync_settings(HOST_ID, settings)
+    cloud_bridge.sync_settings(HOST_ID, settings)
     
     def preload_models():
         import time

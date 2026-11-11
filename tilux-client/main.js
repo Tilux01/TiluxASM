@@ -51,79 +51,96 @@ async function setupAndRunBackend() {
     if (app.isPackaged) {
         const userDataPath = app.getPath('userData');
         backendCwd = path.join(userDataPath, 'backend');
+        const resourcesBackend = path.join(process.resourcesPath, 'backend');
         
-        const venvPath = path.join(backendCwd, 'venv');
-        
-        pyExe = process.platform === 'win32' ? 
-            path.join(venvPath, 'Scripts', 'python.exe') : 
-            path.join(venvPath, 'bin', 'python3');
+        // Check for cross-platform pre-bundled standalone runtime
+        const bundledPython = process.platform === 'win32'
+            ? path.join(resourcesBackend, 'runtime', 'python.exe')
+            : path.join(resourcesBackend, 'runtime', 'bin', 'python3');
+
+        if (fs.existsSync(bundledPython)) {
+            console.log(`[Tilux] Pre-bundled standalone Python runtime found: ${bundledPython}`);
+            pyExe = bundledPython;
+            script = path.join(resourcesBackend, 'server.py');
             
-        script = path.join(backendCwd, 'server.py');
-        const setupCompleteFile = path.join(backendCwd, '.setup_complete');
-        
-        // Check if setup is already complete by looking for the .setup_complete flag
-        if (!fs.existsSync(setupCompleteFile) || !fs.existsSync(pyExe)) {
-            console.log('First launch or broken install detected. Setting up backend...');
-            
-            // Wipe existing broken venv if it exists
-            if (fs.existsSync(venvPath)) {
-                fs.rmSync(venvPath, { recursive: true, force: true });
+            // Ensure userData/backend directory exists for writable files (e.g. host_id, settings)
+            if (!fs.existsSync(backendCwd)) {
+                fs.mkdirSync(backendCwd, { recursive: true });
             }
             
-            // Show the loading screen
-            if (mainWindow) mainWindow.loadFile(path.join(__dirname, 'src', 'loading.html'));
-            
-            // Wait a moment for UI to render
-            await new Promise(r => setTimeout(r, 1000));
-            
-            if (mainWindow) mainWindow.webContents.send('installation-status', 'Copying AI files to user data...');
-            
-            // Copy files from resources/backend to userData/backend
-            const resourcesBackend = path.join(process.resourcesPath, 'backend');
-            if (fs.existsSync(resourcesBackend)) {
-                copyDirectory(resourcesBackend, backendCwd);
+            // Copy default configs if not already in userData
+            for (const conf of ['settings.json', 'user_personal.json']) {
+                const srcConf = path.join(resourcesBackend, conf);
+                const destConf = path.join(backendCwd, conf);
+                if (fs.existsSync(srcConf) && !fs.existsSync(destConf)) {
+                    try { fs.copyFileSync(srcConf, destConf); } catch (_) {}
+                }
             }
-            
-            // Create venv and pip install
-            try {
-                const pythonCmd = findSystemPython();
-                if (mainWindow) mainWindow.webContents.send('installation-status', 'Creating virtual environment (this may take a minute)...');
+        } else {
+            // Legacy / unbundled fallback
+            const venvPath = path.join(backendCwd, 'venv');
+            pyExe = process.platform === 'win32' ? 
+                path.join(venvPath, 'Scripts', 'python.exe') : 
+                path.join(venvPath, 'bin', 'python3');
                 
-                function runSpawn(cmd, args, cwdStr) {
-                    return new Promise((res, rej) => {
-                        const child = spawn(cmd, args, { cwd: cwdStr, shell: true });
-                        child.stdout.on('data', data => {
-                            const lines = data.toString().split('\n').map(l => l.trim()).filter(l => l);
-                            if (mainWindow && lines.length > 0) {
-                                mainWindow.webContents.send('installation-status', lines[lines.length - 1]);
-                            }
-                        });
-                        child.stderr.on('data', data => {
-                            const lines = data.toString().split('\n').map(l => l.trim()).filter(l => l);
-                            if (mainWindow && lines.length > 0) {
-                                mainWindow.webContents.send('installation-status', lines[lines.length - 1]);
-                            }
-                        });
-                        child.on('close', code => {
-                            if (code === 0) res();
-                            else rej(new Error(`${cmd} exited with code ${code}`));
-                        });
-                        child.on('error', err => rej(err));
-                    });
+            script = path.join(backendCwd, 'server.py');
+            const setupCompleteFile = path.join(backendCwd, '.setup_complete');
+            
+            if (!fs.existsSync(setupCompleteFile) || !fs.existsSync(pyExe)) {
+                console.log('First launch or broken install detected. Setting up backend...');
+                
+                if (fs.existsSync(venvPath)) {
+                    fs.rmSync(venvPath, { recursive: true, force: true });
                 }
                 
-                await runSpawn(pythonCmd, ['-m', 'venv', 'venv'], backendCwd);
-                const pyCmd = process.platform === 'win32' ? path.join('venv', 'Scripts', 'python.exe') : path.join('.', 'venv', 'bin', 'python3');
-                if (mainWindow) mainWindow.webContents.send('installation-status', 'Running system setup (Dependencies & Engines)...');
-                await runSpawn(pyCmd, ['install.py'], backendCwd);
-                fs.writeFileSync(setupCompleteFile, 'done');
-                console.log('Setup complete.');
-                if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup complete! Booting AI...');
-            } catch (err) {
-                console.error('Setup error:', err);
-                if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup Notice: ' + err.message + ' (Continuing to launch...)');
+                if (mainWindow) mainWindow.loadFile(path.join(__dirname, 'src', 'loading.html'));
+                await new Promise(r => setTimeout(r, 1000));
+                
+                if (mainWindow) mainWindow.webContents.send('installation-status', 'Copying AI files to user data...');
+                if (fs.existsSync(resourcesBackend)) {
+                    copyDirectory(resourcesBackend, backendCwd);
+                }
+                
+                try {
+                    const pythonCmd = findSystemPython();
+                    if (mainWindow) mainWindow.webContents.send('installation-status', 'Creating virtual environment (this may take a minute)...');
+                    
+                    function runSpawn(cmd, args, cwdStr) {
+                        return new Promise((res, rej) => {
+                            const child = spawn(cmd, args, { cwd: cwdStr, shell: true });
+                            child.stdout.on('data', data => {
+                                const lines = data.toString().split('\n').map(l => l.trim()).filter(l => l);
+                                if (mainWindow && lines.length > 0) {
+                                    mainWindow.webContents.send('installation-status', lines[lines.length - 1]);
+                                }
+                            });
+                            child.stderr.on('data', data => {
+                                const lines = data.toString().split('\n').map(l => l.trim()).filter(l => l);
+                                if (mainWindow && lines.length > 0) {
+                                    mainWindow.webContents.send('installation-status', lines[lines.length - 1]);
+                                }
+                            });
+                            child.on('close', code => {
+                                if (code === 0) res();
+                                else rej(new Error(`${cmd} exited with code ${code}`));
+                            });
+                            child.on('error', err => rej(err));
+                        });
+                    }
+                    
+                    await runSpawn(pythonCmd, ['-m', 'venv', 'venv'], backendCwd);
+                    const pyCmd = process.platform === 'win32' ? path.join('venv', 'Scripts', 'python.exe') : path.join('.', 'venv', 'bin', 'python3');
+                    if (mainWindow) mainWindow.webContents.send('installation-status', 'Running system setup (Dependencies & Engines)...');
+                    await runSpawn(pyCmd, ['install.py'], backendCwd);
+                    fs.writeFileSync(setupCompleteFile, 'done');
+                    console.log('Setup complete.');
+                    if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup complete! Booting AI...');
+                } catch (err) {
+                    console.error('Setup error:', err);
+                    if (mainWindow) mainWindow.webContents.send('installation-status', 'Setup Notice: ' + err.message + ' (Continuing to launch...)');
+                }
+                await new Promise(r => setTimeout(r, 1200));
             }
-            await new Promise(r => setTimeout(r, 1200));
         }
     } else {
         // Dev mode
@@ -155,8 +172,17 @@ async function setupAndRunBackend() {
     const isRunning = await checkBackendRunning();
     if (!isRunning) {
         const spawnArgs = script ? [script] : [];
+        const resourcesBackend = path.join(process.resourcesPath || '', 'backend');
+        const customEnv = Object.assign({}, process.env, {
+            TILUX_USER_DATA_DIR: backendCwd,
+            PYTHONPATH: app.isPackaged ? `${resourcesBackend}${path.delimiter}${process.env.PYTHONPATH || ''}` : (process.env.PYTHONPATH || '')
+        });
         try {
-            pyProc = spawn(pyExe, spawnArgs, { cwd: backendCwd, shell: process.platform === 'win32' });
+            pyProc = spawn(pyExe, spawnArgs, { 
+                cwd: backendCwd, 
+                shell: process.platform === 'win32',
+                env: customEnv
+            });
             console.log('Python backend spawned successfully.');
             pyProc.stdout.on('data', (data) => {
                 console.log(`Python: ${data.toString()}`);

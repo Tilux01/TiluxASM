@@ -35,3 +35,7 @@ tilux-client/build/tilux-server
 sfdcr.c
 .Tilux/
 tilux-saas/
+*.so
+*.pyd
+view.png
+diagnose_windows.*

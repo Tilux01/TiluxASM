@@ -27,7 +27,14 @@
         "from": "../tilux_engine_dist",
         "to": "backend",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.c",
+          "!**/*.log",
+          "!**/*.bat",
+          "!**/.env*",
+          "!**/database.rules.json",
+          "!**/firebase.json",
+          "!**/diagnose*"
         ]
       }
     ],

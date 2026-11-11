@@ -49,8 +49,8 @@ class UsageTracker:
             return self._cached_stats or self._default_stats()
             
         try:
-            from firebase_sync import firebase_sync
-            cloud_data = firebase_sync.fetch_usage_and_billing(self.host_id)
+            from cloud_bridge import cloud_bridge
+            cloud_data = cloud_bridge.fetch_usage_and_billing(self.host_id)
             if cloud_data:
                 # Ensure all keys exist
                 defaults = self._default_stats()
@@ -66,14 +66,14 @@ class UsageTracker:
         return self._cached_stats or self._default_stats()
 
     def _save_realtime_stats(self, data):
-        """Pushes directly to Firebase and updates memory cache. No local file."""
+        """Pushes directly to Cloud state and updates memory cache. No local file."""
         self._cached_stats = data
         self._last_fetch_time = time.time()
         if self.host_id:
             def _push():
                 try:
-                    from firebase_sync import firebase_sync
-                    firebase_sync.sync_usage_and_billing(self.host_id, data)
+                    from cloud_bridge import cloud_bridge
+                    cloud_bridge.sync_usage_and_billing(self.host_id, data)
                 except Exception:
                     pass
             threading.Thread(target=_push, daemon=True).start()

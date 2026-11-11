@@ -1,4 +1,4 @@
-import credentials
+import vault as credentials
 import os
 import json
 import threading
@@ -540,10 +540,29 @@ class Brain:
         api_key = credentials.get_credential("DEEPSEEK_API_KEY") or client_secret
         proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app").rstrip("/")
         base_url = f"{proxy_url}/api/v1" if not proxy_url.endswith("/api/v1") else proxy_url
+
+        host_id = os.getenv("TILUX_HOST_ID", "")
+        if not host_id:
+            try:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                host_file = os.path.join(base_dir, "host_id.txt")
+                if os.path.exists(host_file):
+                    with open(host_file, "r") as hf:
+                        host_id = hf.read().strip()
+            except Exception:
+                pass
+
+        default_headers = {}
+        if host_id:
+            default_headers["X-Tilux-Host-Id"] = host_id
+        user_id = os.getenv("TILUX_USER_ID", "")
+        if user_id:
+            default_headers["X-Tilux-User-Id"] = user_id
         
         self.client = OpenAI(
             api_key=api_key, 
-            base_url=base_url
+            base_url=base_url,
+            default_headers=default_headers
         )
         
         self.history = [
@@ -1119,18 +1138,7 @@ class Brain:
                             tools=TOOLS
                         )
                     except Exception as primary_err:
-                        # If vision proxy call failed and user has configured a direct local NanoGPT key, try direct connection
-                        direct_key = credentials.get_credential("NANOGPT_API_KEY") or credentials.get_credential("GEMINI_API_KEY") or os.getenv("NANOGPT_API_KEY") or os.getenv("GEMINI_API_KEY")
-                        if has_active_image and direct_key:
-                            print(f"[Brain Vision] Proxy failed ({primary_err}), trying direct connection...")
-                            direct_client = OpenAI(api_key=direct_key, base_url="https://nano-gpt.com/api/v1")
-                            response = direct_client.chat.completions.create(
-                                model=active_model,
-                                messages=messages_for_api,
-                                tools=TOOLS
-                            )
-                        else:
-                            raise primary_err
+                        raise primary_err
                 except Exception as model_err:
                     print(f"[Brain Vision Fallback] Primary model ({active_model}) failed: {model_err}")
                     # Automatic resilient fallback to default client (deepseek-flash) with text-sanitized history

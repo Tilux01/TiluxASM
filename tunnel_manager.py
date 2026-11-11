@@ -3,7 +3,7 @@ import threading
 import re
 import os
 import time
-from firebase_sync import firebase_sync
+from cloud_bridge import cloud_bridge
 
 class TunnelManager:
     def __init__(self, port=8932):
@@ -46,9 +46,9 @@ class TunnelManager:
                                     pair_token = info[1]
                                     pc_name = info[2]
                                     wake_token = info[3] if len(info) > 3 else None
-                                    firebase_sync.sync_host_state(host_id, pair_token, url, pc_name, wake_token)
+                                    cloud_bridge.sync_host_state(host_id, pair_token, url, pc_name, wake_token)
                                 else:
-                                    firebase_sync.sync_tunnel_url(url)
+                                    cloud_bridge.sync_tunnel_url(url)
                                 
                     self.process.wait()
                 except Exception as e:
