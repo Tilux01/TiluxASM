@@ -344,7 +344,6 @@ let wakeWindow = null;
 function createWakeWindow(showImmediately = true) {
     if (wakeWindow && !wakeWindow.isDestroyed()) {
         if (showImmediately) {
-            wakeWindow.webContents.reload();
             wakeWindow.show();
             wakeWindow.focus();
         }
@@ -374,7 +373,8 @@ function createWakeWindow(showImmediately = true) {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            devTools: false
+            devTools: false,
+            backgroundThrottling: false
         }
     });
 
@@ -403,10 +403,7 @@ function createWakeWindow(showImmediately = true) {
         wakeWindow.focus();
     }
     
-    wakeWindow.on('close', (e) => {
-        // Prevent destruction so next trigger is 0ms instant
-        e.preventDefault();
-        wakeWindow.hide();
+    wakeWindow.on('close', () => {
         try {
             const http = require('http');
             const req = http.request({
@@ -419,6 +416,10 @@ function createWakeWindow(showImmediately = true) {
             req.end();
         } catch(err) {}
     });
+
+    wakeWindow.on('closed', () => {
+        wakeWindow = null;
+    });
 }
 
 ipcMain.on('show-wake-popup', () => {
@@ -427,13 +428,13 @@ ipcMain.on('show-wake-popup', () => {
 
 ipcMain.on('hide-wake-popup', () => {
     if (wakeWindow && !wakeWindow.isDestroyed()) {
-        wakeWindow.hide();
+        wakeWindow.close();
     }
 });
 
 ipcMain.on('open-chat-with-prompt', (event, prompt) => {
     if (wakeWindow && !wakeWindow.isDestroyed()) {
-        wakeWindow.hide();
+        wakeWindow.close();
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();

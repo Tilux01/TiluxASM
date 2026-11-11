@@ -439,6 +439,14 @@ def listen(on_recording_done=None) -> str:
                     chunk = np.squeeze(chunk)
                     audio_buffer.append(chunk)
                     
+                    # Immediately exit if user closed popup or aborted
+                    import sys
+                    if "server" in sys.modules:
+                        srv = sys.modules["server"]
+                        if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
+                            print("[Voice] Recording aborted by user / abort_flag.")
+                            return ""
+                    
                     rms = float(np.sqrt(np.mean(chunk**2)))
                     
                     # 1. Calibrate baseline from first 2-3 ambient chunks
@@ -480,6 +488,14 @@ def listen(on_recording_done=None) -> str:
             return ""
             
         audio_np = np.concatenate(audio_buffer)
+
+        # Abort if user cancelled during recording
+        import sys
+        if "server" in sys.modules:
+            srv = sys.modules["server"]
+            if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
+                print("[Voice] Transcription cancelled by abort_flag.")
+                return ""
 
         # 1. Ultra-Fast Groq Cloud Whisper (~100-300ms on Groq LPUs)
         groq_text = transcribe_groq_whisper(audio_np, sample_rate)

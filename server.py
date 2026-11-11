@@ -145,9 +145,15 @@ def trigger_open_chat(prompt: str):
     OPEN_CHAT_PROMPT = prompt
     socketio.emit("open_chat_with_prompt", {"prompt": prompt})
 
+is_voice_assistant_active = False
+
 def _on_wake_word():
-    global WAKE_WORD_TRIGGERED, WIDGET_STATE, current_widget_proc
+    global WAKE_WORD_TRIGGERED, WIDGET_STATE, current_widget_proc, is_voice_assistant_active
     import time
+    if is_voice_assistant_active:
+        print("[Server] Voice assistant already active, ignoring duplicate trigger.")
+        return
+    is_voice_assistant_active = True
     print("[Server] _on_wake_word triggered by wake engine!")
     WAKE_WORD_TRIGGERED = True
     socketio.emit("wake_word_detected", {"status": "listening"})
@@ -188,7 +194,7 @@ def _on_wake_word():
                 current_widget_proc = subprocess.Popen([exe_path, "--widget"])
     
     def background_task(my_proc):
-        global WIDGET_STATE
+        global WIDGET_STATE, is_voice_assistant_active
         import time, re
         brain.abort_flag = False
         try:
@@ -270,10 +276,20 @@ def _on_wake_word():
             WIDGET_STATE["main_text"] = ""
             WIDGET_STATE["sub_text"] = ""
             WIDGET_STATE["is_speaking"] = False
+            # Ensure microphone and audio stream have cleanly released before resuming wake word
+            time.sleep(0.15)
+            is_voice_assistant_active = False
+            brain.abort_flag = False
             import wake_word
             wake_word.resume_wake_word()
                 
-    threading.Thread(target=background_task, args=(current_widget_proc,), daemon=True).start()
+    try:
+        threading.Thread(target=background_task, args=(current_widget_proc,), daemon=True).start()
+    except Exception as e:
+        print(f"[Server] Error launching background voice thread: {e}")
+        is_voice_assistant_active = False
+        import wake_word
+        wake_word.resume_wake_word()
 
 if load_settings().get("wake_word_enabled", True):
     wake_word.start_wake_word(_on_wake_word)
@@ -456,8 +472,11 @@ def stop_generation():
     except Exception as e:
         print(f"[Stop Generation History Error] {e}")
 
-    import wake_word
-    wake_word.resume_wake_word()
+    # Only resume wake word if voice assistant thread is NOT currently active;
+    # if it IS active, background_task's finally: block will cleanly release the mic and resume it.
+    if not is_voice_assistant_active:
+        import wake_word
+        wake_word.resume_wake_word()
     return jsonify({"status": "stopped"})
 
 
