@@ -27,13 +27,62 @@ WAKE_REGEX = re.compile(
 )
 
 class WakeWordEngine:
+    def _locate_or_download_model(self) -> str:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        user_data = os.environ.get("TILUX_USER_DATA_DIR")
+        
+        candidates = [
+            "vosk-model",
+            os.path.join(base_dir, "vosk-model"),
+        ]
+        if user_data:
+            candidates.insert(0, os.path.join(user_data, "vosk-model"))
+            
+        for cand in candidates:
+            if os.path.exists(cand) and os.path.isdir(cand) and os.path.exists(os.path.join(cand, "am")):
+                return cand
+                
+        # If model is not found, auto-download in background
+        print("[WakeWord] Vosk model not found locally. Auto-downloading offline engine (40MB)...")
+        target_dir = user_data if user_data and os.path.exists(user_data) else base_dir
+        if not os.access(target_dir, os.W_OK):
+            target_dir = os.path.expanduser("~/.cache/tilux")
+            os.makedirs(target_dir, exist_ok=True)
+            
+        zip_path = os.path.join(target_dir, "vosk.zip")
+        final_dir = os.path.join(target_dir, "vosk-model")
+        vosk_url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+        
+        try:
+            import urllib.request
+            import zipfile
+            import shutil
+            urllib.request.urlretrieve(vosk_url, zip_path)
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(target_dir)
+            extracted = os.path.join(target_dir, "vosk-model-small-en-us-0.15")
+            if os.path.exists(extracted):
+                if os.path.exists(final_dir):
+                    shutil.rmtree(final_dir, ignore_errors=True)
+                os.rename(extracted, final_dir)
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+            print(f"[WakeWord] Vosk model downloaded successfully to: {final_dir}")
+            return final_dir
+        except Exception as e:
+            print(f"[WakeWord] Auto-download error: {e}")
+            if os.path.exists(zip_path):
+                try: os.remove(zip_path)
+                except Exception: pass
+            return "vosk-model"
+
     def __init__(self, callback):
         self.callback = callback
         self.is_running = False
         self.is_paused = False
         self.thread = None
         self.q = queue.Queue()
-        self.model_path = "vosk-model"
+        self.model_path = self._locate_or_download_model()
         self.active_keywords = [
             "tilux", "tlox", "t lox", "t-lux", "t lux", "tielux", "tie lux", "tealux", "tee lux", "tea lux",
             "deluxe", "de luxe", "d lux",

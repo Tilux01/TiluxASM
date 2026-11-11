@@ -69,7 +69,7 @@ async function setupAndRunBackend() {
             }
             
             // Copy default configs if not already in userData
-            for (const conf of ['settings.json', 'user_personal.json']) {
+            for (const conf of ['settings.json', 'user_personal.json', 'wake_greetings.json']) {
                 const srcConf = path.join(resourcesBackend, conf);
                 const destConf = path.join(backendCwd, conf);
                 if (fs.existsSync(srcConf) && !fs.existsSync(destConf)) {

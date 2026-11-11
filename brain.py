@@ -618,6 +618,14 @@ class Brain:
         settings = get_voice_settings()
         tone = settings.get("ai_tone", "Sassy")
         greetings_file = "wake_greetings.json"
+        if not os.path.exists(greetings_file):
+            cand = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wake_greetings.json")
+            if os.path.exists(cand):
+                greetings_file = cand
+            else:
+                user_data = os.environ.get("TILUX_USER_DATA_DIR")
+                if user_data and os.path.exists(os.path.join(user_data, "wake_greetings.json")):
+                    greetings_file = os.path.join(user_data, "wake_greetings.json")
         greetings_map = {}
         if os.path.exists(greetings_file):
             try:

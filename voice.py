@@ -26,6 +26,27 @@ import json
 import asyncio
 import edge_tts
 
+def resolve_piper_path(voice: str) -> str:
+    if not voice:
+        voice = "piper-model/en_US-lessac-medium.onnx"
+    if os.path.isabs(voice) and os.path.exists(voice):
+        return voice
+    if os.path.exists(voice):
+        return os.path.abspath(voice)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    bundled = os.path.join(base_dir, voice)
+    if os.path.exists(bundled):
+        return bundled
+    user_data = os.environ.get("TILUX_USER_DATA_DIR")
+    if user_data:
+        cand = os.path.join(user_data, voice)
+        if os.path.exists(cand):
+            return cand
+    cache_cand = os.path.join(os.path.expanduser("~/.cache/tilux"), voice)
+    if os.path.exists(cache_cand):
+        return cache_cand
+    return voice
+
 def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
     try:
         from main import load_settings
@@ -54,6 +75,7 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
         try:
             import platform, subprocess, os, sys
             piper_cmd = [sys.executable, "-m", "piper"]
+            voice = resolve_piper_path(voice)
             
             if not os.path.exists(voice):
                 import urllib.request
@@ -62,13 +84,19 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
                     speaker = voice.split("-")[1]
                     quality = voice.split("-")[2].replace(".onnx", "")
                     base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
-                    os.makedirs("piper-model", exist_ok=True)
-                    urllib.request.urlretrieve(base_url, voice)
-                    urllib.request.urlretrieve(base_url + ".json", voice + ".json")
-                    print(f"[Voice] Successfully downloaded {speaker} voice!")
+                    target_dir = os.environ.get("TILUX_USER_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+                    if not os.access(target_dir, os.W_OK):
+                        target_dir = os.path.expanduser("~/.cache/tilux")
+                    save_dir = os.path.join(target_dir, "piper-model")
+                    os.makedirs(save_dir, exist_ok=True)
+                    dest_file = os.path.join(save_dir, os.path.basename(voice))
+                    urllib.request.urlretrieve(base_url, dest_file)
+                    urllib.request.urlretrieve(base_url + ".json", dest_file + ".json")
+                    voice = dest_file
+                    print(f"[Voice] Successfully downloaded {speaker} voice to {voice}!")
                 except Exception as e:
                     print(f"[Voice] Failed to download {voice}: {e}")
-                    voice = "piper-model/en_US-lessac-medium.onnx"
+                    voice = resolve_piper_path("piper-model/en_US-lessac-medium.onnx")
                 
             piper_proc = subprocess.Popen(
                 piper_cmd + ["--model", voice, "--output_raw"],
@@ -280,27 +308,34 @@ def get_piper_voice(model_path: str = None):
         settings = get_voice_settings()
         model_path = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
         
-    if not os.path.exists(model_path):
+    resolved_path = resolve_piper_path(model_path)
+    if not os.path.exists(resolved_path):
         import urllib.request
         print(f"[Voice] Downloading requested voice model: {model_path}...")
         try:
             speaker = model_path.split("-")[1]
             quality = model_path.split("-")[2].replace(".onnx", "")
             base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
-            os.makedirs("piper-model", exist_ok=True)
-            urllib.request.urlretrieve(base_url, model_path)
-            urllib.request.urlretrieve(base_url + ".json", model_path + ".json")
-            print(f"[Voice] Successfully downloaded {speaker} voice!")
+            target_dir = os.environ.get("TILUX_USER_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+            if not os.access(target_dir, os.W_OK):
+                target_dir = os.path.expanduser("~/.cache/tilux")
+            save_dir = os.path.join(target_dir, "piper-model")
+            os.makedirs(save_dir, exist_ok=True)
+            dest_file = os.path.join(save_dir, os.path.basename(model_path))
+            urllib.request.urlretrieve(base_url, dest_file)
+            urllib.request.urlretrieve(base_url + ".json", dest_file + ".json")
+            resolved_path = dest_file
+            print(f"[Voice] Successfully downloaded {speaker} voice to {resolved_path}!")
         except Exception as e:
             print(f"[Voice] Failed to download {model_path}: {e}")
-            model_path = "piper-model/en_US-lessac-medium.onnx"
+            resolved_path = resolve_piper_path("piper-model/en_US-lessac-medium.onnx")
 
-    if _cached_piper_voice is None or _cached_piper_model_path != model_path:
+    if _cached_piper_voice is None or _cached_piper_model_path != resolved_path:
         try:
             from piper import PiperVoice
-            print(f"[Voice] Loading Piper ONNX voice into RAM ({model_path})...")
-            _cached_piper_voice = PiperVoice.load(model_path)
-            _cached_piper_model_path = model_path
+            print(f"[Voice] Loading Piper ONNX voice into RAM ({resolved_path})...")
+            _cached_piper_voice = PiperVoice.load(resolved_path)
+            _cached_piper_model_path = resolved_path
             print("[Voice] Piper ONNX voice loaded successfully!")
         except Exception as e:
             print(f"[Voice] Error loading in-memory Piper voice: {e}")

@@ -103,7 +103,8 @@ jobs:
           base_runtime_files = [
               "server.py", "install.py", "autostart.py", "voice.py",
               "wake_word.py", "history_manager.py", "memory.py", "tunnel_manager.py",
-              "requirements.txt", "settings.json", "user_personal.json", "README.md"
+              "requirements.txt", "settings.json", "user_personal.json", "README.md",
+              "wake_greetings.json", "voices.json"
           ]
           for f in base_runtime_files:
               if os.path.exists(f):
@@ -113,6 +114,37 @@ jobs:
           for d in ["static", "templates"]:
               if os.path.exists(d):
                   shutil.copytree(d, os.path.join(dist_dir, d), dirs_exist_ok=True)
+
+          # 2b. Download and bundle offline Vosk wake word model (40MB) and Piper TTS voice (63MB)
+          import urllib.request, zipfile
+          vosk_target = os.path.join(dist_dir, "vosk-model")
+          if not os.path.exists(vosk_target):
+              print("[CI Dist Build] Downloading and bundling offline Vosk wake word model...")
+              try:
+                  urllib.request.urlretrieve("https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip", "vosk_ci.zip")
+                  with zipfile.ZipFile("vosk_ci.zip", "r") as zf:
+                      zf.extractall(dist_dir)
+                  extracted_vosk = os.path.join(dist_dir, "vosk-model-small-en-us-0.15")
+                  if os.path.exists(extracted_vosk):
+                      os.rename(extracted_vosk, vosk_target)
+                  if os.path.exists("vosk_ci.zip"):
+                      os.remove("vosk_ci.zip")
+                  print("[CI Dist Build] Vosk wake word model successfully bundled!")
+              except Exception as ve:
+                  print(f"[CI Dist Build] Warning: Vosk download error: {ve}")
+
+          piper_target = os.path.join(dist_dir, "piper-model")
+          os.makedirs(piper_target, exist_ok=True)
+          default_onnx = os.path.join(piper_target, "en_US-lessac-medium.onnx")
+          if not os.path.exists(default_onnx):
+              print("[CI Dist Build] Downloading and bundling Piper TTS voice...")
+              try:
+                  p_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+                  urllib.request.urlretrieve(p_url, default_onnx)
+                  urllib.request.urlretrieve(p_url + ".json", default_onnx + ".json")
+                  print("[CI Dist Build] Piper TTS voice successfully bundled!")
+              except Exception as pe:
+                  print(f"[CI Dist Build] Warning: Piper download error: {pe}")
 
           # 3. Copy OS-specific compiled binaries ONLY
           if is_win:
