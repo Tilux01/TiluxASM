@@ -336,6 +336,67 @@ def init_voice_models():
             print(f"[Voice] Model preload notice: {e}")
     threading.Thread(target=_loader, daemon=True).start()
 
+_cached_groq_client = None
+
+def get_groq_client():
+    global _cached_groq_client
+    if _cached_groq_client is not None:
+        return _cached_groq_client
+    import os
+    try:
+        from credentials import get_credential
+        groq_key = get_credential("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+    except Exception:
+        groq_key = os.getenv("GROQ_API_KEY")
+        
+    if not groq_key:
+        return None
+    try:
+        from openai import OpenAI
+        _cached_groq_client = OpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=groq_key,
+            timeout=4.5
+        )
+        return _cached_groq_client
+    except Exception as e:
+        print(f"[Voice] Groq client init notice: {e}")
+        return None
+
+def transcribe_groq_whisper(audio_np, sample_rate: int = 16000) -> str:
+    """Ultra-fast Groq LPU Whisper transcription (~100-300ms latency)."""
+    client = get_groq_client()
+    if client is None:
+        return ""
+    try:
+        import io, wave, time
+        import numpy as np
+        
+        t0 = time.time()
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes((np.clip(audio_np, -1.0, 1.0) * 32767).astype(np.int16).tobytes())
+        buf.seek(0)
+        buf.name = "audio.wav"
+
+        res = client.audio.transcriptions.create(
+            model="whisper-large-v3-turbo",
+            file=buf,
+            language="en"
+        )
+        text = getattr(res, "text", str(res)).strip()
+        # Filter hallucinated single periods or generic silence markers
+        if text and text not in [".", "..", "...", "you", "Thank you.", "Thank you!"]:
+            elapsed = time.time() - t0
+            print(f"[Voice] ⚡ Groq LPU Whisper STT ({elapsed:.2f}s): '{text}'")
+            return text
+    except Exception as e:
+        print(f"[Voice] Groq Whisper error: {e}")
+    return ""
+
 def listen(on_recording_done=None) -> str:
     """Listens to the microphone using ultra-fast dynamic VAD and returns transcribed text."""
     model = get_whisper_model()
@@ -405,7 +466,12 @@ def listen(on_recording_done=None) -> str:
             
         audio_np = np.concatenate(audio_buffer)
 
-        # 1. Ultra-Fast Cloud Speech Recognition (~200-400ms, accurate with natural accents)
+        # 1. Ultra-Fast Groq Cloud Whisper (~100-300ms on Groq LPUs)
+        groq_text = transcribe_groq_whisper(audio_np, sample_rate)
+        if groq_text:
+            return groq_text
+
+        # 2. Fast Cloud Speech Recognition Fallback (Google STT ~350ms)
         try:
             import speech_recognition as sr
             int16_bytes = (np.clip(audio_np, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
@@ -416,12 +482,12 @@ def listen(on_recording_done=None) -> str:
             except Exception:
                 text = r.recognize_google(audio_data, language="en-NG").strip()
             if text:
-                print(f"[Voice] Fast STT transcript: '{text}'")
+                print(f"[Voice] Google STT transcript: '{text}'")
                 return text
         except Exception as fast_err:
-            print(f"[Voice] Fast STT unavailable or failed ({fast_err}). Using Faster-Whisper fallback...")
+            print(f"[Voice] Google STT unavailable ({fast_err}). Using Faster-Whisper fallback...")
 
-        # 2. Resilient Offline Fallback (Faster-Whisper on-device)
+        # 3. Resilient Offline Fallback (Faster-Whisper on-device CPU)
         print("[Voice] Faster-Whisper transcribing speech...")
         segments, info = model.transcribe(
             audio_np, 
@@ -436,4 +502,5 @@ def listen(on_recording_done=None) -> str:
     except Exception as e:
         print(f"[Voice] Microphone/Recognition Error: {e}")
         return ""
+
 

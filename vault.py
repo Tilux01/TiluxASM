@@ -31,6 +31,18 @@ def get_credential(key_name: str, fallback: str = "") -> str:
     def_val = KEYS_DEF.get(key_name, fallback)
     return def_val if def_val and not def_val.startswith("your_") else fallback
 
+def set_credential(key_name: str, val: str) -> bool:
+    """Sets a secret credential in OS Keyring vault and environment."""
+    if not key_name or not val:
+        return False
+    os.environ[key_name] = val
+    try:
+        keyring.set_password(SERVICE_NAME, key_name, val)
+        return True
+    except Exception as e:
+        print(f"[Vault Notice] Could not save {key_name} to keyring: {e}")
+        return False
+
 def load_credentials_into_env():
     init_vault_credentials()
     for key_name in KEYS_DEF.keys():
@@ -39,3 +51,4 @@ def load_credentials_into_env():
             os.environ[key_name] = val
 
 load_credentials_into_env()
+
