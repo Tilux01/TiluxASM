@@ -189,6 +189,7 @@ def _on_wake_word():
     
     def background_task(my_proc):
         global WIDGET_STATE
+        import time, re
         brain.abort_flag = False
         try:
             # 1. Immediately speak tone wake greeting
@@ -242,7 +243,6 @@ def _on_wake_word():
                 reply_text = reply_data.get("reply", "")
                 
                 if reply_text:
-                    import re, time
                     clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
                     WIDGET_STATE["sub_text"] = "Speaking..."
                     # Keep main_text displaying the user's transcribed question (do NOT replace with reply_text)
