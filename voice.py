@@ -52,8 +52,8 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
     else:
         # Piper Offline Mode
         try:
-            import platform, subprocess, os
-            piper_bin = "./venv/bin/piper" if platform.system() != "Windows" else ".\\venv\\Scripts\\piper.exe"
+            import platform, subprocess, os, sys
+            piper_cmd = [sys.executable, "-m", "piper"]
             
             if not os.path.exists(voice):
                 import urllib.request
@@ -71,7 +71,7 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
                     voice = "piper-model/en_US-lessac-medium.onnx"
                 
             piper_proc = subprocess.Popen(
-                [piper_bin, "--model", voice, "--output_raw"],
+                piper_cmd + ["--model", voice, "--output_raw"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL

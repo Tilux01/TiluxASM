@@ -39,3 +39,4 @@ tilux-saas/
 *.pyd
 view.png
 diagnose_windows.*
+tilux_engine_dist/

@@ -143,7 +143,8 @@ jobs:
           # Purge any leaked test files, rules or configs from the bundle
           banned_items = [
               "parse_linkedin.py", "play_music.py", "database.rules.json",
-              "firebase.json", ".env", "test_sfdcr.so"
+              "firebase.json", ".env", "test_sfdcr.so", "credentials.py",
+              "firebase_sync.py", "diagnose_windows.bat", "diagnose_windows.py"
           ]
           for item in banned_items:
               target = os.path.join(dist_dir, item)
