@@ -341,21 +341,32 @@ app.on('will-quit', () => {
 
 let wakeWindow = null;
 
-function createWakeWindow() {
-    if (wakeWindow) return;
+function createWakeWindow(showImmediately = true) {
+    if (wakeWindow && !wakeWindow.isDestroyed()) {
+        if (showImmediately) {
+            wakeWindow.show();
+            wakeWindow.focus();
+        }
+        return;
+    }
+
     const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
     const iconPath = path.join(__dirname, 'src', iconName);
     const appIcon = nativeImage.createFromPath(iconPath);
     
-    // Create a frameless, transparent window for the glowing orb
+    const winWidth = 360;
+    const winHeight = 320;
+
+    // Create a frameless, transparent window with ample headroom for ambient glow
     wakeWindow = new BrowserWindow({
-        width: 400,
-        height: 250,
+        width: winWidth,
+        height: winHeight,
         transparent: true,
         frame: false,
         alwaysOnTop: true,
         hasShadow: false,
         resizable: false,
+        show: false,
         icon: !appIcon.isEmpty() ? appIcon : iconPath,
         focusable: true,
         skipTaskbar: true,
@@ -374,23 +385,27 @@ function createWakeWindow() {
 
     wakeWindow.loadFile(path.join(__dirname, 'src', 'wake_popup.html'));
     
-    // Position at the bottom center of the screen
-    const { screen, net } = require('electron');
+    // Position at the bottom center of the screen with plenty of headroom
+    const { screen } = require('electron');
     const primaryDisplay = screen.getPrimaryDisplay();
-    // Use absolute screen bounds instead of workArea to stick strictly to the bottom edge
     const { width, height } = primaryDisplay.bounds;
     
     wakeWindow.setBounds({
-        x: Math.round(width / 2 - 200),
-        y: Math.round(height - 230), // Adjusted to keep the bottom anchored since height is now 250
-        width: 400,
-        height: 250
+        x: Math.round(width / 2 - (winWidth / 2)),
+        y: Math.round(height - winHeight + 10),
+        width: winWidth,
+        height: winHeight
     });
     
-    wakeWindow.show();
+    if (showImmediately) {
+        wakeWindow.show();
+        wakeWindow.focus();
+    }
     
-    wakeWindow.on('closed', () => {
-        wakeWindow = null;
+    wakeWindow.on('close', (e) => {
+        // Prevent destruction so next trigger is 0ms instant
+        e.preventDefault();
+        wakeWindow.hide();
         try {
             const http = require('http');
             const req = http.request({
@@ -401,18 +416,28 @@ function createWakeWindow() {
             });
             req.on('error', () => {});
             req.end();
-        } catch(e) {}
+        } catch(err) {}
     });
 }
 
 ipcMain.on('show-wake-popup', () => {
-    createWakeWindow();
+    createWakeWindow(true);
 });
 
 ipcMain.on('hide-wake-popup', () => {
-    if (wakeWindow) {
-        wakeWindow.close();
-        wakeWindow = null;
+    if (wakeWindow && !wakeWindow.isDestroyed()) {
+        wakeWindow.hide();
+    }
+});
+
+ipcMain.on('open-chat-with-prompt', (event, prompt) => {
+    if (wakeWindow && !wakeWindow.isDestroyed()) {
+        wakeWindow.hide();
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('auto-send-prompt', prompt);
     }
 });
 

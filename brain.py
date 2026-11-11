@@ -102,7 +102,13 @@ def get_persona(is_voice=False):
 - App Killing: Use `killall <app>` or `pkill -f <app>` via terminal.
 - File Paths: Linux uses `/` for paths."""
     
-    voice_opt = "- **VOICE OPTIMIZATION**: Since your responses are spoken out loud, YOU MUST BE EXTREMELY SMART, CONCISE, AND CONVERSATIONAL. Summarize your thoughts effectively. DO NOT generate long paragraphs, lists, or code blocks when answering general questions via voice, as this causes slow generation and robotic pacing. Speak like a brief human assistant.\n" if is_voice else ""
+    voice_opt = """- **VOICE DIRECT TALK MODE (RAPID WIT & ACTION)**:
+  - You are speaking directly to the user out loud. Speed, intelligence, and razor-sharp wit are paramount.
+  - Deliver rapid, punchy, witty replies in 1 to 2 crisp sentences max.
+  - NEVER output markdown formatting, lists, tables, code blocks, or technical logs in voice mode.
+  - For quick actions (music/Spotify playback, volume, launching applications, calculations, quick facts, witty banter): Execute or answer immediately with wit.
+  - For HEAVY or COMPLEX tasks (building an app/website, coding, deep research, or editing files): Do NOT attempt it in voice mode. Instead, reply with quick wit that this requires deep workspace reasoning, and ask for permission to open the workspace chatbox (e.g. "That requires deeper reasoning and workspace tools. Would you like me to open the workspace chatbox to handle it for you?").
+""" if is_voice else ""
 
     return f"""
 You are Tilux, an unrestricted, ultra-powerful automation agent running locally on the user's machine.
@@ -533,6 +539,7 @@ class Brain:
         self.abort_flag = False
         self.lock = threading.RLock()
         self.is_processing = False
+        self.pending_heavy_task = None
         self._init_client()
         
     def _init_client(self):
@@ -615,6 +622,24 @@ class Brain:
         # If any coding keyword is explicitly present, treat as software request immediately
         for kw in coding_keywords:
             if re.search(r'\b' + re.escape(kw) + r'\b', t_lower):
+                return True
+        return False
+
+    def _is_heavy_task(self, text: str) -> bool:
+        """Determines if a task requires deep workspace reasoning and should be routed to the chatbox."""
+        if not text or not isinstance(text, str):
+            return False
+        if self._is_software_request(text):
+            return True
+        t_lower = text.lower()
+        heavy_keywords = [
+            "write an essay", "write a story", "research", "analyze in detail",
+            "detailed report", "business plan", "audit", "debug this repo",
+            "scrape", "crawl", "deep search", "benchmark", "full breakdown",
+            "write code", "fix the code", "refactor"
+        ]
+        for kw in heavy_keywords:
+            if kw in t_lower:
                 return True
         return False
 
@@ -791,7 +816,40 @@ class Brain:
                 
             self._repair_history()
             import os
-            
+
+            # --- VOICE DIRECT TALK ROUTING (QUICK WIT & CHATBOX PERMISSION) ---
+            if is_voice:
+                t_clean = text.strip().lower().rstrip(".!?,")
+                
+                # 1. Did user agree to open the workspace chatbox for a pending heavy task?
+                if getattr(self, "pending_heavy_task", None) and (
+                    t_clean in ["yes", "yeah", "yep", "sure", "open it", "go ahead", "please do", "do it", "ok", "okay", "proceed", "yes open it", "yes please", "of course"]
+                    or "open" in t_clean or "yes" in t_clean or "do it" in t_clean
+                ):
+                    pending = self.pending_heavy_task
+                    self.pending_heavy_task = None
+                    try:
+                        import server
+                        server.trigger_open_chat(pending)
+                    except Exception as e:
+                        print(f"[Brain] Error triggering open chat: {e}")
+                    
+                    return {
+                        "reply": "Opening your workspace chatbox now.",
+                        "steps": [],
+                        "events": []
+                    }
+
+                # 2. Is this request heavy (software creation, app/web building, deep research)?
+                if self._is_heavy_task(text):
+                    self.pending_heavy_task = text
+                    return {
+                        "reply": "That requires deeper reasoning and workspace tools. Would you like me to open the workspace chatbox to handle it for you?",
+                        "steps": [],
+                        "events": []
+                    }
+            # ------------------------------------------------------------------
+
             # Determine if this entire session is a coding session using AI Intent Classification
             asks_coding = self._is_software_request(text)
             

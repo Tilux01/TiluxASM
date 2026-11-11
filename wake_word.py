@@ -19,7 +19,7 @@ class WakeWordEngine:
         self.thread = None
         self.q = queue.Queue()
         self.model_path = "vosk-model"
-        self.active_keywords = ["tlox", "t lox", "Hello Tlox","tilux", "tielux", "tie lux" "tealux", "tee lux", "tea lux", "t lux", "hello assistant", "assistant", "assistance", "hello assistance"]
+        self.active_keywords = ["tlox", "t lox", "hello tlox", "tilux", "tielux", "tie lux", "tealux", "tee lux", "tea lux", "t lux", "hello assistant", "assistant", "assistance", "hello assistance"]
 
     def _audio_callback(self, indata, frames, time_info, status):
         if status:

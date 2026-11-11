@@ -135,9 +135,17 @@ def widget_state_endpoint():
     })
 
 current_widget_proc = None
+OPEN_CHAT_PROMPT = ""
+
+def trigger_open_chat(prompt: str):
+    """Signals the frontend client to open the workspace chatbox and execute a heavy task."""
+    global OPEN_CHAT_PROMPT
+    OPEN_CHAT_PROMPT = prompt
+    socketio.emit("open_chat_with_prompt", {"prompt": prompt})
 
 def _on_wake_word():
     global WAKE_WORD_TRIGGERED, WIDGET_STATE, current_widget_proc
+    import time
     WAKE_WORD_TRIGGERED = True
     socketio.emit("wake_word_detected", {"status": "listening"})
     
@@ -152,40 +160,32 @@ def _on_wake_word():
     
     WIDGET_STATE = {
         "main_text": "Listening...",
-        "sub_text": "",
+        "sub_text": "Listening...",
         "speak_text": "",
         "speak_id": 0,
         "is_speaking": False,
         "reply_text": ""
     }
     
-    if current_widget_proc is None or current_widget_proc.poll() is not None:
-        electron_bin = os.path.join("tilux-client", "node_modules", ".bin", "electron")
-        if os.path.exists(electron_bin):
-            current_widget_proc = subprocess.Popen([electron_bin, "./tilux-client", "--widget"])
-        elif exe_path == "npm":
-            current_widget_proc = subprocess.Popen(["npm", "start", "--", "--widget"], cwd="tilux-client")
-        else:
-            current_widget_proc = subprocess.Popen([exe_path, "--widget"])
+    # Only spawn standalone widget process if the main Electron client is not already active
+    is_ui_active = (time.time() - last_ui_poll_time) < 4.0
+    if not is_ui_active:
+        if current_widget_proc is None or current_widget_proc.poll() is not None:
+            electron_bin = os.path.join("tilux-client", "node_modules", ".bin", "electron")
+            if os.path.exists(electron_bin):
+                current_widget_proc = subprocess.Popen([electron_bin, "./tilux-client", "--widget"])
+            elif exe_path == "npm":
+                current_widget_proc = subprocess.Popen(["npm", "start", "--", "--widget"], cwd="tilux-client")
+            else:
+                current_widget_proc = subprocess.Popen([exe_path, "--widget"])
     
     def background_task(my_proc):
         global WIDGET_STATE
         try:
-            WIDGET_STATE["main_text"] = "Booting up..."
-            WIDGET_STATE["sub_text"] = "Loading AI models..."
-            
-            print("[Server] Generating dynamic tone acknowledgment...")
-            ack = brain.generate_wake_acknowledgment()
-            print(f"[Server] Acknowledging wake word (speaking '{ack}')...")
-            brain.abort_flag = False # Reset so we can actually speak the acknowledgment!
-            speak(ack)
-            stop_audio_process()
-            
+            # DIRECT TALK (Gemini Live style): Open microphone instantly without speech delay
             WIDGET_STATE["main_text"] = "Listening..."
-            WIDGET_STATE["sub_text"] = "Speak your command..."
-            print("[Server] Opening microphone to listen for command...")
-            import time
-            time.sleep(0.15) # Small buffer to ensure wake word engine has fully released ALSA mic lock
+            WIDGET_STATE["sub_text"] = "Listening..."
+            brain.abort_flag = False
             
             def on_speech_captured():
                 global WIDGET_STATE
@@ -196,25 +196,21 @@ def _on_wake_word():
             text = listen(on_recording_done=on_speech_captured)
             print(f"[Server] Voice capture complete. Recognized text: '{text}'")
             
-            # Change state immediately so UI feels snappy
-            if text:
-                WIDGET_STATE["main_text"] = f'"{text}"'
-                WIDGET_STATE["sub_text"] = "Generating answer..."
-                
-            # INSTANTLY release the mic so the user can interrupt the AI while it thinks/speaks!
+            # INSTANTLY release the mic so user can speak again while AI thinks/speaks!
             import wake_word
             wake_word.resume_wake_word()
             
             if text:
+                WIDGET_STATE["main_text"] = "Processing..."
+                WIDGET_STATE["sub_text"] = "Thinking..."
                 
-                brain.abort_flag = False
                 brain.abort_flag = False
                 brain.clear_history()
                 
                 reply_data = brain.process_input(text, [], is_voice=True)
                 
                 if brain.abort_flag:
-                    return # Interrupted by another wake word!
+                    return
                     
                 reply_text = reply_data.get("reply", "")
                 
@@ -227,37 +223,24 @@ def _on_wake_word():
                     WIDGET_STATE["speak_id"] = time.time()
                     
                     if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                        # Browser speaks directly with native word boundary sync!
                         WIDGET_SPEECH_EVENT.clear()
                         WIDGET_STATE["speak_text"] = reply_text
                         word_count = len(clean_widget_text.split())
-                        timeout_sec = max(5.0, (word_count * 0.35) + 3.0)
+                        timeout_sec = max(4.0, (word_count * 0.3) + 2.0)
                         WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                     else:
-                        # Fallback to local / OS speech engine!
                         speak(reply_text)
                     
                     WIDGET_STATE["is_speaking"] = False
-                    WIDGET_STATE["main_text"] = reply_text
+                    WIDGET_STATE["main_text"] = "Ready"
                     WIDGET_STATE["sub_text"] = ""
             else:
                 if not brain.abort_flag:
-                    WIDGET_STATE["main_text"] = "I didn't catch that."
-                    WIDGET_STATE["reply_text"] = "I didn't catch that."
-                    WIDGET_STATE["is_speaking"] = True
-                    WIDGET_STATE["speak_id"] = time.time()
-                    if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                        WIDGET_SPEECH_EVENT.clear()
-                        WIDGET_STATE["speak_text"] = "I didn't catch that."
-                        WIDGET_SPEECH_EVENT.wait(timeout=4.0)
-                    else:
-                        speak("I didn't catch that.")
-                    WIDGET_STATE["is_speaking"] = False
+                    WIDGET_STATE["main_text"] = ""
+                    WIDGET_STATE["sub_text"] = ""
         finally:
             import wake_word
             wake_word.resume_wake_word()
-            # Do not auto-terminate the widget!
-            # The popup stays open so the user can see and read the answer.
                 
     threading.Thread(target=background_task, args=(current_widget_proc,), daemon=True).start()
 
@@ -284,14 +267,21 @@ def verify_request_auth():
 
 @app.route("/api/wake_word", methods=["GET", "POST"])
 def wake_word_endpoint():
-    global WAKE_WORD_TRIGGERED, last_ui_poll_time
+    global WAKE_WORD_TRIGGERED, OPEN_CHAT_PROMPT, last_ui_poll_time
+    import time
+    last_ui_poll_time = time.time()
     if request.method == "POST":
+        data = request.json if request.is_json else {}
+        if data and data.get("clear_open_chat"):
+            OPEN_CHAT_PROMPT = ""
+            return jsonify({"status": "cleared_open_chat"})
         WAKE_WORD_TRIGGERED = False
         return jsonify({"status": "cleared"})
     
-    import time
-    last_ui_poll_time = time.time()
-    return jsonify({"triggered": WAKE_WORD_TRIGGERED})
+    return jsonify({
+        "triggered": WAKE_WORD_TRIGGERED,
+        "open_chat_prompt": OPEN_CHAT_PROMPT
+    })
 
 @app.route("/")
 def home():

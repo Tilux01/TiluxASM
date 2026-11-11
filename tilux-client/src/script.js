@@ -1214,25 +1214,39 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchSystemStats(); // Initial fetch
 
     async function checkWakeWord() {
-        if (isProcessingText || document.getElementById('voice-bars').style.display === 'flex') return;
+        if (isProcessingText) return;
         try {
             const res = await fetch('http://127.0.0.1:8932/api/wake_word');
             const data = await res.json();
+
+            // 1. Handle command to open main workspace chatbox for heavy reasoning tasks
+            if (data.open_chat_prompt) {
+                await fetch('http://127.0.0.1:8932/api/wake_word', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ clear_open_chat: true })
+                });
+                if (window.electronAPI && window.electronAPI.openChatWithPrompt) {
+                    window.electronAPI.openChatWithPrompt(data.open_chat_prompt);
+                }
+                inputField.value = data.open_chat_prompt;
+                sendText(false);
+                return;
+            }
+
+            // 2. Handle wake word trigger
             if (data.triggered) {
                 await fetch('http://127.0.0.1:8932/api/wake_word', {method: 'POST'});
                 
-                // Show the glowing orb on the desktop ONLY if the main window is not focused
-                if (!document.hasFocus() && window.electronAPI && window.electronAPI.showWakePopup) {
+                // Show the glowing orb on the desktop instantly
+                if (window.electronAPI && window.electronAPI.showWakePopup) {
                     window.electronAPI.showWakePopup();
                 }
-
-                const audio = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU'); // dummy short sound, better use a real chime
-                audio.play().catch(e => {});
-                startVoice();
             }
         } catch(e) {}
     }
-    setInterval(checkWakeWord, 800);
+    // High-responsiveness 150ms check
+    setInterval(checkWakeWord, 150);
 
 
     // Event Listeners

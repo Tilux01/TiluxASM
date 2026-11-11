@@ -337,50 +337,64 @@ def init_voice_models():
     threading.Thread(target=_loader, daemon=True).start()
 
 def listen(on_recording_done=None) -> str:
-    """Listens to the microphone using VAD and returns the transcribed text."""
+    """Listens to the microphone using ultra-fast dynamic VAD and returns transcribed text."""
     model = get_whisper_model()
     if not model:
         return ""
         
     sample_rate = 16000
-    print("[Voice] Listening for user speech...")
-    
-    audio_buffer = []
+    print("[Voice] Listening for user speech (instant VAD)...")
     
     import numpy as np
     import sounddevice as sd
     
-    SILENCE_THRESHOLD = 0.015  # Amplitude threshold
-    SILENCE_DURATION = 0.55    # Seconds of silence to stop recording (fast responsive cutoff)
-    MAX_DURATION = 15.0        # Max seconds to record
+    # 0.08 seconds per chunk (1280 samples at 16kHz) for ultra-rapid reactive sampling
+    frames_per_chunk = 1280
+    chunk_sec = frames_per_chunk / sample_rate
     
-    frames_per_chunk = 2000    # 0.125 seconds per chunk at 16kHz for responsive VAD
-    max_silence_chunks = int(SILENCE_DURATION / 0.125)
-    max_chunks = int(MAX_DURATION / 0.125)
+    INITIAL_TIMEOUT_CHUNKS = int(3.2 / chunk_sec)   # Abort if user says nothing for 3.2s
+    SILENCE_CUTOFF_CHUNKS = int(0.40 / chunk_sec)    # Stop recording 400ms after user finishes sentence
+    MAX_RECORD_CHUNKS = int(10.0 / chunk_sec)        # Maximum 10 seconds of speech
     
-    silence_chunks_count = 0
+    audio_buffer = []
     has_spoken = False
+    silence_chunks_count = 0
+    ambient_samples = []
+    
+    # Default baseline thresholds
+    speech_threshold = 0.014
+    silence_threshold = 0.009
     
     try:
         with noalsaerr():
             with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
-                for _ in range(max_chunks):
+                for chunk_idx in range(MAX_RECORD_CHUNKS):
                     chunk, overflowed = stream.read(frames_per_chunk)
                     chunk = np.squeeze(chunk)
                     audio_buffer.append(chunk)
                     
-                    # Calculate volume (RMS)
-                    rms = np.sqrt(np.mean(chunk**2))
+                    rms = float(np.sqrt(np.mean(chunk**2)))
                     
-                    if rms > SILENCE_THRESHOLD:
+                    # Calibrate ambient noise floor dynamically during the first 3 chunks (240ms)
+                    if chunk_idx < 3:
+                        ambient_samples.append(rms)
+                        if chunk_idx == 2:
+                            avg_ambient = float(np.mean(ambient_samples))
+                            speech_threshold = max(0.012, avg_ambient * 1.8)
+                            silence_threshold = max(0.008, avg_ambient * 1.25)
+                    
+                    if rms >= speech_threshold:
                         has_spoken = True
                         silence_chunks_count = 0
                     elif has_spoken:
-                        silence_chunks_count += 1
-                        
-                    if has_spoken and silence_chunks_count >= max_silence_chunks:
-                        print("[Voice] Silence detected. Stopping recording.")
-                        # Immediately notify callback so UI switches to 'Processing...' with 0 delay!
+                        if rms <= silence_threshold:
+                            silence_chunks_count += 1
+                        else:
+                            silence_chunks_count = max(0, silence_chunks_count - 1)
+                            
+                    # 1. Responsive Sentence Drop: Stop immediately 400ms after speaking ends
+                    if has_spoken and silence_chunks_count >= SILENCE_CUTOFF_CHUNKS:
+                        print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing instantly.")
                         if on_recording_done:
                             try:
                                 on_recording_done()
@@ -388,23 +402,30 @@ def listen(on_recording_done=None) -> str:
                                 pass
                         break
                         
-        if not has_spoken:
-            print("[Voice] Listen timeout (no speech detected).")
+                    # 2. Fast Initial Timeout: If user triggered wake word but didn't speak, exit in 3s
+                    if not has_spoken and chunk_idx >= INITIAL_TIMEOUT_CHUNKS:
+                        print("[Voice] Initial timeout: No speech detected within 3.2s.")
+                        return ""
+                        
+        if not has_spoken or not audio_buffer:
             return ""
             
-        print("[Voice] Sending audio to Faster-Whisper...")
+        print("[Voice] Fast Whisper transcription starting...")
         audio_np = np.concatenate(audio_buffer)
         
         segments, info = model.transcribe(
             audio_np, 
             beam_size=1, 
             best_of=1, 
+            temperature=0.0,
+            vad_filter=True, # Silero VAD strips leading/trailing silence instantly
             condition_on_previous_text=False, 
             language="en"
         )
         text = " ".join([segment.text for segment in segments]).strip()
-        print(f"[Voice] Faster-whisper transcription complete: '{text}'")
+        print(f"[Voice] Faster-whisper transcript: '{text}'")
         return text
     except Exception as e:
         print(f"[Voice] Microphone/Recognition Error: {e}")
         return ""
+

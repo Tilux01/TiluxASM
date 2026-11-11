@@ -7,16 +7,22 @@
     <link rel="icon" type="image/png" href="./icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        html, body {
             margin: 0;
             padding: 0;
-            overflow: hidden;
-            background: transparent;
+            overflow: visible;
+            background: transparent !important;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
+            justify-content: center;
             align-items: center;
             height: 100vh;
             width: 100vw;
@@ -24,34 +30,22 @@
             color: white;
             text-align: center;
             position: relative;
-            user-select: none;
         }
 
-        #close-btn {
-            position: absolute;
-            top: 10px;
-            right: 14px;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            color: rgba(255, 255, 255, 0.6);
-            border-radius: 50%;
-            width: 22px;
-            height: 22px;
-            font-size: 11px;
+        /* Ethereal Glowing Orbit - Plenty of padding so drop-shadow never clips at borders */
+        .orb-wrapper {
+            position: relative;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            padding: 24px;
             cursor: pointer;
-            z-index: 100;
-            transition: all 0.2s ease;
-            outline: none;
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        #close-btn:hover {
-            background: rgba(239, 68, 68, 0.6);
-            border-color: rgba(239, 68, 68, 0.9);
-            color: #ffffff;
-            transform: scale(1.1);
+        .orb-wrapper:hover {
+            transform: scale(1.05);
         }
 
         .orb-container {
@@ -61,13 +55,11 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            overflow: hidden;
             border-radius: 50%;
             rotate: 90deg;
-            cursor: pointer;
-            filter: drop-shadow(0 0 15px #c4b5fd) drop-shadow(0 0 25px #8b5cf6);
-            transition: all 0.3s ease;
-            margin-top: 25px;
+            /* Multi-layer ambient aura with zero flat edge capping */
+            filter: drop-shadow(0 0 16px rgba(196, 181, 253, 0.85)) drop-shadow(0 0 32px rgba(139, 92, 246, 0.7)) drop-shadow(0 0 48px rgba(124, 58, 237, 0.45));
+            transition: filter 0.3s ease;
             flex-shrink: 0;
         }
 
@@ -79,11 +71,6 @@
             background: #060606;
             filter: blur(18px);
             transition: all 0.3s ease;
-        }
-
-        .orb-container:hover .orb {
-            width: 150px;
-            animation: rotate 6s infinite;
         }
 
         .orb-inner {
@@ -122,96 +109,62 @@
             100% { transform: rotate(360deg); }
         }
 
-        .orb-container:hover .orb .orb-inner {
-            width: 170%;
-        }
-
-        .text-container {
-            width: 90%;
-            display: flex;
-            flex-direction: column;
+        /* Subtle, Minimalist Status Pill (No broken text streaming) */
+        .status-pill {
+            display: inline-flex;
             align-items: center;
-            justify-content: flex-start;
-            margin-top: 6px;
+            gap: 8px;
+            background: rgba(18, 18, 24, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 5px 14px;
+            border-radius: 20px;
+            margin-top: 14px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.35);
+            transition: opacity 0.25s ease, transform 0.25s ease;
         }
 
-        #main-text {
-            font-size: 15px;
-            font-weight: 500;
-            line-height: 1.35;
-            letter-spacing: 0.2px;
-            text-shadow: 0 2px 5px rgba(0,0,0,0.8);
-            max-height: 80px;
-            overflow-y: auto;
-            opacity: 0.95;
-            margin-bottom: 4px;
-            min-height: 32px;
-            scrollbar-width: none;
-            padding: 0 6px;
-            box-sizing: border-box;
-            transition: all 0.12s ease;
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #a855f7;
+            box-shadow: 0 0 8px #a855f7;
+            animation: pulseDot 1.4s ease-in-out infinite;
         }
 
-        #main-text::-webkit-scrollbar {
-            display: none;
+        @keyframes pulseDot {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.4); opacity: 1; box-shadow: 0 0 12px #c084fc; }
         }
 
-        #main-text.word-mode {
-            font-size: 26px;
-            font-weight: 700;
-            letter-spacing: 0.6px;
-            color: #ffffff;
-            text-shadow: 0 0 16px rgba(168, 85, 247, 0.9), 0 2px 4px rgba(0,0,0,0.9);
-            min-height: 36px;
-            max-height: 42px;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            animation: wordPop 0.1s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes wordPop {
-            0% { transform: scale(0.92); opacity: 0.75; }
-            100% { transform: scale(1); opacity: 1; }
-        }
-
-        #sub-text {
+        #status-label {
             font-size: 13px;
-            font-weight: 300;
-            font-style: italic;
+            font-weight: 500;
             letter-spacing: 0.3px;
-            color: #d1d5db;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-            display: -webkit-box;
-            -webkit-line-clamp: 1;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            opacity: 0.8;
-            min-height: 15px;
+            color: rgba(255, 255, 255, 0.9);
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
         }
     </style>
 </head>
 <body>
-    <button id="close-btn" onclick="dismissWidget(event)" title="Close (Esc)">✕</button>
-
-    <div class="orb-container">
-        <div class="orb" id="orb">
-            <div class="orb-inner"></div>
-            <div class="orb-inner"></div>
+    <div class="orb-wrapper" onclick="dismissWidget(event)" title="Click to dismiss">
+        <div class="orb-container">
+            <div class="orb" id="orb">
+                <div class="orb-inner"></div>
+                <div class="orb-inner"></div>
+            </div>
+        </div>
+        
+        <div class="status-pill" id="status-pill">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-label">Listening...</span>
         </div>
     </div>
-    
-    <div class="text-container">
-        <div id="main-text"></div>
-        <div id="sub-text"></div>
-    </div>
-    
+
     <script>
         let isDismissed = false;
-        let wordStreamTimeout = null;
-        let isStreamingWords = false;
-        let fullMainText = "";
         let lastSpokenId = null;
         let voices = [];
         let hasSpeech = ('speechSynthesis' in window);
@@ -220,12 +173,6 @@
             if (e && e.stopPropagation) e.stopPropagation();
             if (isDismissed) return;
             isDismissed = true;
-            
-            if (wordStreamTimeout) {
-                clearTimeout(wordStreamTimeout);
-                wordStreamTimeout = null;
-            }
-            isStreamingWords = false;
 
             if (hasSpeech) {
                 try {
@@ -247,11 +194,6 @@
                 window.close();
             }, 30);
         }
-
-        document.body.addEventListener('click', (e) => {
-            if (e.target && e.target.id === 'close-btn') return;
-            dismissWidget(e);
-        });
 
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') dismissWidget(e);
@@ -299,77 +241,20 @@
                 .trim();
         }
 
-        function streamSingleWords(cleanText, onComplete) {
-            const mainEl = document.getElementById('main-text');
-            if (wordStreamTimeout) {
-                clearTimeout(wordStreamTimeout);
-                wordStreamTimeout = null;
-            }
-
-            const words = cleanText.split(/\s+/).filter(w => w.length > 0);
-            if (words.length === 0) {
-                if (mainEl) {
-                    mainEl.classList.remove('word-mode');
-                    mainEl.innerText = "";
-                }
-                if (onComplete) onComplete();
-                return;
-            }
-
-            isStreamingWords = true;
-            let idx = 0;
-
-            function showNextWord() {
-                if (isDismissed || !isStreamingWords) return;
-                if (idx < words.length) {
-                    const word = words[idx];
-                    if (mainEl) {
-                        mainEl.classList.add('word-mode');
-                        mainEl.innerText = word;
-                    }
-                    idx++;
-
-                    // Dynamic timing tailored to word length and sentence cadence
-                    let delay = Math.max(160, Math.min(360, word.length * 35));
-                    if (word.endsWith(',') || word.endsWith(';')) delay += 120;
-                    if (word.endsWith('.') || word.endsWith('!') || word.endsWith('?')) delay += 220;
-
-                    wordStreamTimeout = setTimeout(showNextWord, delay);
-                } else {
-                    isStreamingWords = false;
-                    if (mainEl) {
-                        mainEl.classList.remove('word-mode');
-                        mainEl.innerText = cleanText;
-                    }
-                    if (onComplete) onComplete();
-                }
-            }
-
-            showNextWord();
-        }
-
         function speakWithBrowserSync(rawText, speakId) {
             if (speakId === lastSpokenId || !rawText) return;
             lastSpokenId = speakId;
 
             const cleanText = cleanSpokenText(rawText);
-            const mainEl = document.getElementById('main-text');
             const orb = document.getElementById('orb');
+            const statusLabel = document.getElementById('status-label');
 
-            if (!cleanText) {
-                if (mainEl) {
-                    mainEl.classList.remove('word-mode');
-                    mainEl.innerText = "";
-                }
-                return;
-            }
+            if (!cleanText) return;
+
+            if (statusLabel) statusLabel.innerText = "Speaking...";
 
             if (!hasSpeech || voices.length === 0) {
-                // If browser TTS is not available, stream words visually synchronized with audio
                 if (orb) orb.style.animationDuration = "0.7s";
-                streamSingleWords(cleanText, () => {
-                    if (orb) orb.style.animationDuration = "2s";
-                });
                 return;
             }
 
@@ -378,7 +263,8 @@
                 window.speechSynthesis.resume();
 
                 const utterance = new SpeechSynthesisUtterance(cleanText);
-                utterance.rate = 1.05;
+                // Snappy, natural conversational tempo (Gemini Live style)
+                utterance.rate = 1.15;
 
                 const chosenVoice = voices.find(v => 
                     v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Jenny') || v.name.includes('Guy'))
@@ -386,50 +272,26 @@
 
                 if (chosenVoice) utterance.voice = chosenVoice;
 
-                if (mainEl) {
-                    mainEl.classList.add('word-mode');
-                    mainEl.innerText = "";
-                }
-
-                // Show only one word at a time as each word is spoken
-                utterance.onboundary = (e) => {
-                    if (e.name === 'word' && mainEl) {
-                        const remaining = cleanText.substring(e.charIndex);
-                        const match = remaining.match(/^(\S+)/);
-                        if (match) {
-                            mainEl.classList.add('word-mode');
-                            mainEl.innerText = match[1];
-                        }
-                    }
-                };
-
                 utterance.onstart = () => {
-                    if (orb) orb.style.animationDuration = "0.7s";
+                    if (orb) orb.style.animationDuration = "0.6s";
+                    if (statusLabel) statusLabel.innerText = "Speaking...";
                 };
 
                 utterance.onend = () => {
-                    if (mainEl) {
-                        mainEl.classList.remove('word-mode');
-                        mainEl.innerText = cleanText;
-                    }
-                    if (orb) orb.style.animationDuration = "2s";
+                    if (orb) orb.style.animationDuration = "2.5s";
+                    if (statusLabel) statusLabel.innerText = "Ready";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
                 };
 
                 utterance.onerror = () => {
-                    if (mainEl) {
-                        mainEl.classList.remove('word-mode');
-                        mainEl.innerText = cleanText;
-                    }
-                    if (orb) orb.style.animationDuration = "2s";
+                    if (orb) orb.style.animationDuration = "2.5s";
+                    if (statusLabel) statusLabel.innerText = "Ready";
                     fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
                 };
 
                 window.speechSynthesis.speak(utterance);
             } catch(e) {
-                streamSingleWords(cleanText, () => {
-                    if (orb) orb.style.animationDuration = "2s";
-                });
+                if (orb) orb.style.animationDuration = "2.5s";
                 fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
             }
         }
@@ -439,45 +301,34 @@
             try {
                 const res = await fetch('http://127.0.0.1:8932/api/widget_state');
                 const data = await res.json();
-                const mainEl = document.getElementById('main-text');
+                const statusLabel = document.getElementById('status-label');
+                const orb = document.getElementById('orb');
 
-                // 1. If server sent speech request with speak_id
                 if (data.speak_text && data.speak_id && data.speak_id !== lastSpokenId) {
                     speakWithBrowserSync(data.speak_text, data.speak_id);
                 } else if (data.reply_text && data.speak_id && data.speak_id !== lastSpokenId) {
                     lastSpokenId = data.speak_id;
-                    const cleanText = cleanSpokenText(data.reply_text);
-                    const orb = document.getElementById('orb');
-                    if (orb) orb.style.animationDuration = "0.7s";
-                    streamSingleWords(cleanText, () => {
-                        if (orb) orb.style.animationDuration = "2s";
-                    });
-                } else if (!isStreamingWords && !data.is_speaking) {
-                    // For user voice-to-text or system status (e.g. Listening...), show full text directly (not word-by-word)
-                    if (mainEl) mainEl.classList.remove('word-mode');
-                    if (data.main_text !== fullMainText) {
-                        fullMainText = data.main_text;
-                        if (mainEl) mainEl.innerText = fullMainText;
+                    if (statusLabel) statusLabel.innerText = "Speaking...";
+                    if (orb) orb.style.animationDuration = "0.6s";
+                }
+
+                if (statusLabel && !data.is_speaking) {
+                    if (data.main_text === "Listening...") {
+                        statusLabel.innerText = "Listening...";
+                    } else if (data.main_text === "Processing..." || data.sub_text === "Thinking...") {
+                        statusLabel.innerText = "Thinking...";
+                    } else if (data.sub_text) {
+                        statusLabel.innerText = data.sub_text;
                     }
                 }
 
-                let sub = data.sub_text || "";
-                if (sub.toLowerCase().includes("ran a command") || sub.includes("Running:") || sub.includes("Tool:")) {
-                    sub = "Working on it...";
-                }
-                const subEl = document.getElementById('sub-text');
-                if (subEl) subEl.innerText = sub;
-
-                const orb = document.getElementById('orb');
                 if (orb) {
                     if (data.main_text === "Listening...") {
-                        orb.style.animationDuration = "1.5s";
-                    } else if (data.main_text === "Processing..." || data.sub_text === "Thinking..." || data.sub_text === "Transcribing voice...") {
+                        orb.style.animationDuration = "1.2s";
+                    } else if (data.main_text === "Processing..." || data.sub_text === "Thinking...") {
                         orb.style.animationDuration = "0.4s";
-                    } else if (data.is_speaking || isStreamingWords) {
-                        orb.style.animationDuration = "0.7s";
-                    } else if (data.sub_text) {
-                        orb.style.animationDuration = "0.8s";
+                    } else if (data.is_speaking) {
+                        orb.style.animationDuration = "0.6s";
                     } else {
                         orb.style.animationDuration = "2.5s";
                     }
@@ -485,7 +336,8 @@
             } catch(e) {}
         }
 
-        setInterval(updateState, 100);
+        // Fast 50ms reactive state polling
+        setInterval(updateState, 50);
         updateState();
     </script>
 </body>
