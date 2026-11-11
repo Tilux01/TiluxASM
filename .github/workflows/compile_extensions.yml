@@ -170,12 +170,7 @@ jobs:
           rm -f python_embed.zip
 
           # Enable site-packages & local imports in python311._pth
-          cat << 'EOF' > tilux_engine_dist/runtime/python311._pth
-python311.zip
-.
-..
-import site
-EOF
+          printf "python311.zip\r\n.\r\n..\r\nimport site\r\n" > tilux_engine_dist/runtime/python311._pth
 
           # Install pip into embedded Python
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
