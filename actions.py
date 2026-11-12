@@ -20,7 +20,17 @@ def update_settings(ai_tone: str = None, tts_enabled: bool = None, tts_voice: st
     Use this when the user asks to change the AI tone, enable/disable voice, change TTS voice or speed, or update sudo password.
     """
     import json, os
-    settings_file = "settings.json"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.environ.get("TILUX_USER_DATA_DIR") or base_dir
+    settings_file = os.path.join(data_dir, "settings.json")
+    if not os.path.exists(settings_file):
+        cand = os.path.join(base_dir, "settings.json")
+        if os.path.exists(cand):
+            try:
+                import shutil
+                shutil.copy2(cand, settings_file)
+            except Exception:
+                pass
     data = {}
     if os.path.exists(settings_file):
         try:
@@ -54,12 +64,15 @@ def update_settings(ai_tone: str = None, tts_enabled: bool = None, tts_voice: st
 
 def get_sudo_password():
     import json, os
-    if os.path.exists("settings.json"):
-        try:
-            with open("settings.json", "r") as f:
-                return json.load(f).get("sudo_password", "").strip()
-        except:
-            pass
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.environ.get("TILUX_USER_DATA_DIR") or base_dir
+    for cand in [os.path.join(data_dir, "settings.json"), os.path.join(base_dir, "settings.json")]:
+        if os.path.exists(cand):
+            try:
+                with open(cand, "r") as f:
+                    return json.load(f).get("sudo_password", "").strip()
+            except:
+                pass
     return os.environ.get("SUDO_PASSWORD", "").strip()
 
 def execute_bash_command(command: str) -> str:

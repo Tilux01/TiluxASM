@@ -69,19 +69,21 @@ class TunnelManager:
         def _run():
             while True:
                 try:
-                    import shutil
+                    import shutil, platform
                     stdbuf_prefix = "stdbuf -oL -eL " if shutil.which("stdbuf") else ""
                     cf_cmd = self._get_cloudflared_command()
                     cmd = f"{stdbuf_prefix}{cf_cmd} tunnel --url http://localhost:{self.port}"
                     print(f"[Tunnel Manager] Spawning Secure High-Speed Tunnel on port {self.port}...", flush=True)
-                    self.process = subprocess.Popen(
-                        cmd,
-                        shell=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1
-                    )
+                    popen_kwargs = {
+                        "shell": True,
+                        "stdout": subprocess.PIPE,
+                        "stderr": subprocess.STDOUT,
+                        "text": True,
+                        "bufsize": 1
+                    }
+                    if platform.system() == "Windows":
+                        popen_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+                    self.process = subprocess.Popen(cmd, **popen_kwargs)
                     
                     for line in iter(self.process.stdout.readline, ''):
                         if not line:

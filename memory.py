@@ -1,14 +1,21 @@
 import json
 import os
 
-MEMORY_FILE = "memory.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("TILUX_USER_DATA_DIR") or BASE_DIR
+MEMORY_FILE = os.path.join(DATA_DIR, "memory.json")
 
 def load_memory() -> list:
     """Loads all saved facts/rules from memory."""
-    if not os.path.exists(MEMORY_FILE):
+    target = MEMORY_FILE
+    if not os.path.exists(target):
+        cand = os.path.join(BASE_DIR, "memory.json")
+        if os.path.exists(cand):
+            target = cand
+    if not os.path.exists(target):
         return []
     try:
-        with open(MEMORY_FILE, 'r') as f:
+        with open(target, 'r') as f:
             return json.load(f)
     except Exception:
         return []

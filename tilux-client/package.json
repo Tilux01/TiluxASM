@@ -58,7 +58,9 @@
         "nsis"
       ],
       "icon": "build/icon.ico",
-      "executableName": "Tilux"
+      "executableName": "Tilux",
+      "publisherName": "Tilux",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,

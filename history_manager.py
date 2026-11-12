@@ -4,7 +4,8 @@ import time
 import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-HISTORY_FILE = os.path.join(BASE_DIR, "chat_sessions.json")
+DATA_DIR = os.environ.get("TILUX_USER_DATA_DIR") or BASE_DIR
+HISTORY_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
 
 class HistoryManager:
     def __init__(self, filepath=HISTORY_FILE):
@@ -13,9 +14,14 @@ class HistoryManager:
         self.current_session_id = None
 
     def _load(self):
-        if os.path.exists(self.filepath):
+        target = self.filepath
+        if not os.path.exists(target):
+            cand = os.path.join(BASE_DIR, "chat_sessions.json")
+            if os.path.exists(cand):
+                target = cand
+        if os.path.exists(target):
             try:
-                with open(self.filepath, "r", encoding="utf-8") as f:
+                with open(target, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
                 print(f"[HistoryManager Load Error] {e}")

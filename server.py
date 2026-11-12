@@ -66,7 +66,9 @@ import json
 import os
 
 
-SETTINGS_FILE = "settings.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("TILUX_USER_DATA_DIR") or BASE_DIR
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 DEFAULT_SETTINGS = {
     "tts_enabled": True,
     "wake_word_enabled": True,
@@ -79,18 +81,32 @@ DEFAULT_SETTINGS = {
 
 def load_settings():
     if not os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(DEFAULT_SETTINGS, f)
-        return DEFAULT_SETTINGS
-    with open(SETTINGS_FILE, "r") as f:
-        try:
-            return json.load(f)
-        except:
+        cand = os.path.join(BASE_DIR, "settings.json")
+        if os.path.exists(cand):
+            try:
+                import shutil
+                shutil.copy2(cand, SETTINGS_FILE)
+            except Exception:
+                pass
+        else:
+            try:
+                with open(SETTINGS_FILE, "w") as f:
+                    json.dump(DEFAULT_SETTINGS, f, indent=4)
+            except Exception:
+                pass
             return DEFAULT_SETTINGS
+    try:
+        with open(SETTINGS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return DEFAULT_SETTINGS
 
 def save_settings(data):
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"[Warning] Could not save settings: {e}")
     try:
         from cloud_bridge import cloud_bridge
         cloud_bridge.sync_settings(HOST_ID, data)
@@ -548,7 +564,8 @@ def chat():
         
     import os, uuid
     from werkzeug.utils import secure_filename
-    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "uploads")
+    from flask import send_from_directory
+    uploads_dir = os.path.join(DATA_DIR, "static", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
     
     saved_files = []
@@ -743,13 +760,22 @@ socketio = SocketIO(
 
 import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-HOST_ID_FILE = os.path.join(BASE_DIR, "host_id.txt")
-PAIR_TOKEN_FILE = os.path.join(BASE_DIR, "pair_token.txt")
+HOST_ID_FILE = os.path.join(DATA_DIR, "host_id.txt")
+PAIR_TOKEN_FILE = os.path.join(DATA_DIR, "pair_token.txt")
 def get_or_create_host_id():
     env_id = os.getenv("TILUX_HOST_ID")
     if env_id:
         return env_id.strip()
+    if not os.path.exists(HOST_ID_FILE):
+        cand = os.path.join(BASE_DIR, "host_id.txt")
+        if os.path.exists(cand):
+            try:
+                with open(cand, "r") as f:
+                    h_id = f.read().strip()
+                    if h_id:
+                        return h_id
+            except Exception:
+                pass
     if os.path.exists(HOST_ID_FILE):
         try:
             with open(HOST_ID_FILE, "r") as f:
@@ -771,6 +797,16 @@ def get_or_create_pair_token():
     if env_token:
         return env_token.strip()
     
+    if not os.path.exists(PAIR_TOKEN_FILE):
+        cand = os.path.join(BASE_DIR, "pair_token.txt")
+        if os.path.exists(cand):
+            try:
+                with open(cand, "r") as f:
+                    token = f.read().strip()
+                    if token:
+                        return token
+            except Exception:
+                pass
     if os.path.exists(PAIR_TOKEN_FILE):
         try:
             with open(PAIR_TOKEN_FILE, "r") as f:
@@ -1250,6 +1286,18 @@ if __name__ == "__main__":
     import threading
     threading.Thread(target=preload_models, daemon=True).start()
     
-    print(f"Tilux UI Server & Gateway starting for Host [{HOST_ID}] at http://0.0.0.0:8932", flush=True)
+    # Ensure port 8932 is free or wait gracefully during fast restarts
+    import socket, time
+    for attempt in range(5):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as test_sock:
+                test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                test_sock.bind(("0.0.0.0", 8932))
+            break
+        except OSError:
+            if attempt < 4:
+                print(f"[Server] Port 8932 is waiting to clear... (attempt {attempt+1}/5)", flush=True)
+                time.sleep(1.0)
 
+    print(f"Tilux UI Server & Gateway starting for Host [{HOST_ID}] at http://0.0.0.0:8932", flush=True)
     socketio.run(app, host="0.0.0.0", port=8932, debug=True, use_reloader=False, allow_unsafe_werkzeug=True)

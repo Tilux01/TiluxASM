@@ -177,8 +177,8 @@ class WakeWordEngine:
                             triggered = True
                             break
             except Exception as stream_err:
-                print(f"[WakeWord] Stream error: {stream_err}")
-                time.sleep(0.5)
+                print(f"[WakeWord] Microphone stream notice: {stream_err}. Retrying in 2s...")
+                time.sleep(2.0)
                 
             # Safely invoke callback ONLY after the microphone stream is fully closed
             if triggered:
