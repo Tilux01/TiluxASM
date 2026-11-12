@@ -46,20 +46,13 @@
         "pacman"
       ],
       "icon": "build/icon.png",
-      "category": "Utility",
-      "executableName": "Tilux",
-      "desktop": {
-        "Name": "Tilux",
-        "Comment": "Tilux AI Assistant"
-      }
+      "category": "Utility"
     },
     "win": {
       "target": [
         "nsis"
       ],
       "icon": "build/icon.ico",
-      "executableName": "Tilux",
-      "publisherName": "Tilux",
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
