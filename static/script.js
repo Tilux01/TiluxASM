@@ -147,13 +147,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function addMessage(sender, text) {
+    function addMessage(sender, text, workedFor = null) {
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${sender.toLowerCase()}`;
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'msg-content';
         contentDiv.innerHTML = text; // allow basic HTML
+
+        if (workedFor && sender.toLowerCase() === 'ai') {
+            const workedDiv = document.createElement('div');
+            workedDiv.className = 'worked-for-container';
+            workedDiv.innerHTML = `<span class="worked-for-badge"><i class="fa-solid fa-clock"></i> Worked for ${workedFor}</span>`;
+            contentDiv.appendChild(workedDiv);
+        }
 
         msgDiv.appendChild(contentDiv);
         chatHistory.appendChild(msgDiv);
@@ -193,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const contentDiv = document.createElement('div');
         contentDiv.className = 'msg-content';
         
-        contentDiv.innerHTML = `<div id="events-container-${loadingId}" class="events-container"></div><div id="text-response-${loadingId}"></div>`;
+        contentDiv.innerHTML = `<div id="events-container-${loadingId}" class="events-container"></div><div id="text-response-${loadingId}"></div><div id="worked-for-${loadingId}" class="worked-for-container" style="display: none;"></div>`;
         
         msgDiv.appendChild(contentDiv);
         chatHistory.appendChild(msgDiv);
@@ -243,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     chatHistory.scrollTop = chatHistory.scrollHeight;
                 }
             },
-            setReply: function(text) {
+            setReply: function(text, workedFor) {
                 const container = document.getElementById(`events-container-${loadingId}`);
                 if (container) {
                     container.innerHTML = '';
@@ -253,7 +260,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (textResponse) {
                     textResponse.innerHTML = typeof marked !== 'undefined' ? marked.parse(text) : text;
                 }
-                chatHistory.scrollTop = chatHistory.scrollTop;
+                const workedContainer = document.getElementById(`worked-for-${loadingId}`);
+                if (workedContainer && workedFor) {
+                    workedContainer.innerHTML = `<span class="worked-for-badge"><i class="fa-solid fa-clock"></i> Worked for ${workedFor}</span>`;
+                    workedContainer.style.display = 'block';
+                }
+                chatHistory.scrollTop = chatHistory.scrollHeight;
             },
             setError: function(text) {
                 const textResponse = document.getElementById(`text-response-${loadingId}`);
@@ -381,7 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 aiMessage.updateEvents(data.events);
             }
             if (data.reply) {
-                aiMessage.setReply(data.reply);
+                aiMessage.setReply(data.reply, data.worked_for);
                 sendDesktopNotification(data.reply);
             } else {
                 aiMessage.setError(data.error || "Unknown Error");
@@ -870,7 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (msg.sender === 'User') {
                         addMessage('User', msg.text);
                     } else {
-                        addMessage('AI', formatMarkdownAndProxyImages(msg.text));
+                        addMessage('AI', formatMarkdownAndProxyImages(msg.text), msg.worked_for);
                     }
                 });
                 if (chatHistory) chatHistory.scrollTop = chatHistory.scrollHeight;

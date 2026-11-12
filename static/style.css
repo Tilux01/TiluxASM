@@ -608,6 +608,33 @@ body {
     backdrop-filter: blur(12px);
 }
 
+.worked-for-container {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.worked-for-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 3px 9px;
+    letter-spacing: 0.2px;
+    user-select: none;
+}
+
+.worked-for-badge i {
+    font-size: 10px;
+    color: var(--accent, #a855f7);
+    opacity: 0.9;
+}
+
 .events-container {
     margin-bottom: 6px;
 }

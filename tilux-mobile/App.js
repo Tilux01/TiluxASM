@@ -85,7 +85,7 @@ export default function App() {
     socket.on('agent_status', () => setLoading(true));
     socket.on('agent_reply', (data) => {
       setLoading(false);
-      if (data.reply) setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.reply }]);
+      if (data.reply) setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.reply, worked_for: data.worked_for }]);
     });
     socket.on('disconnect', () => {
       setStatusText('Disconnected');
@@ -253,6 +253,11 @@ export default function App() {
               renderItem={({ item }) => (
                 <View style={[styles.bubble, item.sender === 'user' ? styles.userBubble : styles.aiBubble]}>
                   <Text style={styles.bubbleText}>{item.text}</Text>
+                  {item.worked_for ? (
+                    <View style={styles.workedForBadge}>
+                      <Text style={styles.workedForText}>⏱ Worked for {item.worked_for}</Text>
+                    </View>
+                  ) : null}
                 </View>
               )}
               ListEmptyComponent={
@@ -384,4 +389,19 @@ const styles = StyleSheet.create({
   scanHint: { color: '#FFFFFF', fontSize: 14, marginTop: 24, fontWeight: '600' },
   cancelButton: { marginTop: 40, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.15)' },
   cancelButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  workedForBadge: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)'
+  },
+  workedForText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500'
+  },
 });

@@ -564,17 +564,27 @@ def chat():
             
     sid = history_manager.add_message(session_id, "User", user_text, attachments=attachment_urls)
 
+    t_start = time.time()
     try:
         reply_data = brain.process_input(user_text, attachments=saved_files, session_id=sid, is_voice=is_voice)
     except Exception as e:
         reply_data = {"reply": "Task failed: " + str(e), "events": []}
         
+    duration = max(0.1, time.time() - t_start)
+    if duration < 60:
+        worked_for = f"{duration:.1f}s"
+    else:
+        mins = int(duration // 60)
+        secs = int(duration % 60)
+        worked_for = f"{mins}m {secs}s"
+
     reply_text = reply_data.get("reply", "").replace("—", "-")
     reply_data["reply"] = reply_text
+    reply_data["worked_for"] = worked_for
     if "thinking" in reply_data and isinstance(reply_data["thinking"], str):
         reply_data["thinking"] = reply_data["thinking"].replace("—", "-")
         
-    history_manager.add_message(sid, "AI", reply_text, events=reply_data.get("events", []))
+    history_manager.add_message(sid, "AI", reply_text, events=reply_data.get("events", []), worked_for=worked_for)
     reply_data["session_id"] = sid
     threading.Thread(target=speak, args=(reply_text,), daemon=True).start()
     return jsonify(reply_data)
@@ -933,17 +943,27 @@ def handle_remote_prompt(data):
                 except Exception as e:
                     print(f"[Remote Attachment Save Error] {e}")
                     
+        t_start = time.time()
         try:
             result = brain.process_input(prompt_text, attachments=saved_files, session_id=sid)
         except Exception as e:
             result = {"reply": "Remote task failed: " + str(e), "events": []}
             
+        duration = max(0.1, time.time() - t_start)
+        if duration < 60:
+            worked_for = f"{duration:.1f}s"
+        else:
+            mins = int(duration // 60)
+            secs = int(duration % 60)
+            worked_for = f"{mins}m {secs}s"
+
         reply_text = result.get("reply", "").replace("—", "-")
         result["reply"] = reply_text
+        result["worked_for"] = worked_for
         if "thinking" in result and isinstance(result["thinking"], str):
             result["thinking"] = result["thinking"].replace("—", "-")
         
-        history_manager.add_message(sid, "AI", reply_text, events=result.get("events", []))
+        history_manager.add_message(sid, "AI", reply_text, events=result.get("events", []), worked_for=worked_for)
         result["session_id"] = sid
         result["requested_by"] = client_sid
         socketio.emit("agent_reply", result)

@@ -16,6 +16,7 @@ import re
 
 WAKE_REGEX = re.compile(
     r'\b('
+    r'hello\s+tilux|hey\s+assistant|'
     r'tilux|tlox|tielux|tealux|deluxe|'
     r'assistant|assistance|'
     r'(hey|hi|hello|ok|okay|yo|wake\s+up)\s+(tilux|tlox|deluxe|assistant|looks|locks|lux|lox|alex)|'
@@ -84,6 +85,9 @@ class WakeWordEngine:
         self.q = queue.Queue()
         self.model_path = self._locate_or_download_model()
         self.active_keywords = [
+            "hello tilux", "hey assistant",
+            "hey tilux", "hi tilux", "ok tilux", "okay tilux", "yo tilux",
+            "hello assistant", "hi assistant", "ok assistant", "okay assistant",
             "tilux", "tlox", "t lox", "t-lux", "t lux", "tielux", "tie lux", "tealux", "tee lux", "tea lux",
             "deluxe", "de luxe", "d lux",
             "to looks", "to locks", "to lux", "to lox",
@@ -98,7 +102,6 @@ class WakeWordEngine:
             "tea looks", "tee looks", "tie looks",
             "ty looks", "till acts",
             "assistant", "assistance",
-            "hello assistant", "hey assistant", "hi assistant",
             "hey deluxe", "hi deluxe", "hello deluxe",
             "hey looks", "hey locks", "hey lux"
         ]

@@ -368,7 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function addMessage(sender, text, attachmentsHtml = null) {
+    function addMessage(sender, text, attachmentsHtml = null, workedFor = null) {
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${sender.toLowerCase()}`;
         
@@ -389,6 +389,13 @@ document.addEventListener('DOMContentLoaded', () => {
             textDiv.style.paddingRight = '24px';
             textDiv.innerHTML = text;
             contentDiv.appendChild(textDiv);
+
+            if (workedFor && sender.toLowerCase() === 'ai') {
+                const workedDiv = document.createElement('div');
+                workedDiv.className = 'worked-for-container';
+                workedDiv.innerHTML = `<span class="worked-for-badge"><i class="fa-solid fa-clock"></i> Worked for ${workedFor}</span>`;
+                contentDiv.appendChild(workedDiv);
+            }
             
             const copyBtn = document.createElement('button');
             copyBtn.className = 'msg-copy-btn';
@@ -526,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const innerContainer = document.createElement('div');
         innerContainer.style.paddingRight = '24px';
-        innerContainer.innerHTML = `<div id="events-container-${loadingId}" class="events-container" style="display: none;"></div><div id="text-response-${loadingId}"></div>`;
+        innerContainer.innerHTML = `<div id="events-container-${loadingId}" class="events-container" style="display: none;"></div><div id="text-response-${loadingId}"></div><div id="worked-for-${loadingId}" class="worked-for-container" style="display: none;"></div>`;
         contentDiv.appendChild(innerContainer);
 
         const copyBtn = document.createElement('button');
@@ -605,7 +612,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     smartScrollToBottom(false);
                 }
             },
-            setReply: function(text) {
+            setReply: function(text, workedFor) {
                 const container = document.getElementById(`events-container-${loadingId}`);
                 if (container) {
                     // Hide intermediate thinking and command steps once final response is given
@@ -629,6 +636,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (textResponse) {
                     textResponse.innerHTML = formatMarkdownAndProxyImages(text);
                     wrapGeneratedImages(textResponse);
+                }
+                const workedContainer = document.getElementById(`worked-for-${loadingId}`);
+                if (workedContainer && workedFor) {
+                    workedContainer.innerHTML = `<span class="worked-for-badge"><i class="fa-solid fa-clock"></i> Worked for ${workedFor}</span>`;
+                    workedContainer.style.display = 'block';
                 }
                 smartScrollToBottom(false);
             },
@@ -785,7 +797,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 aiMessage.updateEvents(data.events);
             }
             if (data.reply) {
-                aiMessage.setReply(data.reply);
+                aiMessage.setReply(data.reply, data.worked_for);
                 sendDesktopNotification(data.reply);
             } else {
                 aiMessage.setError(data.error || "Unknown Error");
@@ -1712,7 +1724,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         addMessage('User', finalHtml, attHtml);
                     } else {
-                        addMessage('AI', formatMarkdownAndProxyImages(msg.text));
+                        addMessage('AI', formatMarkdownAndProxyImages(msg.text), null, msg.worked_for);
                         // Wrap generated images in the just-added message
                         const lastMsg = chatHistory.lastElementChild;
                         if (lastMsg) wrapGeneratedImages(lastMsg.querySelector('.msg-content'));

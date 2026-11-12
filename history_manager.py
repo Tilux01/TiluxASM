@@ -102,7 +102,7 @@ class HistoryManager:
             trimmed = trimmed[:last_space]
         return (trimmed + "...").capitalize()
 
-    def add_message(self, session_id, sender, text, events=None, attachments=None):
+    def add_message(self, session_id, sender, text, events=None, attachments=None, worked_for=None):
         if not session_id:
             session_id = self.start_new_session()
             
@@ -133,6 +133,8 @@ class HistoryManager:
             "events": events or [],
             "attachments": attachments or []
         }
+        if worked_for:
+            msg["worked_for"] = worked_for
         session["messages"].append(msg)
         self._save()
         return session_id
