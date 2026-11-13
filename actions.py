@@ -129,12 +129,18 @@ def execute_bash_command(command: str) -> str:
     try:
         # 1. WINDOWS EXECUTION ROUTE
         if platform.system() == "Windows":
-            from os_protocols import WindowsProtocol
+            try:
+                from os_protocols import WindowsProtocol
+            except ImportError:
+                from os_protocol import WindowsProtocol
             return WindowsProtocol.execute_command(command)
 
         # 2. MACOS EXECUTION ROUTE
         if platform.system() == "Darwin":
-            from os_protocols import MacOSProtocol
+            try:
+                from os_protocols import MacOSProtocol
+            except ImportError:
+                from os_protocol import MacOSProtocol
             if "sudo " in command or command.startswith("sudo"):
                 sudo_pass = get_sudo_password()
                 if sudo_pass:
@@ -520,8 +526,10 @@ def smart_action_router(app_name: str, action: str, payload: str = "") -> str:
     """
     app_lower = app_name.lower().strip()
     action_lower = action.lower().strip()
-    
-    from os_protocols import OSProtocols
+    try:
+        from os_protocols import OSProtocols
+    except ImportError:
+        from os_protocol import OSProtocols
 
     # Media & Spotify via Native OS Protocols
     if any(m in app_lower for m in ["spotify", "music", "media", "player"]):
@@ -666,36 +674,61 @@ print(f"Batched action completed for {app_name}. OCR Text Found: {{found}}")
 
 def execute_category_task(category: str, payload_json: str = "{}") -> str:
     """
-    Executes a category task directly via dedicated executor scripts (messaging, media, file).
+    Executes a category task directly via dedicated executor modules (messaging, media, file).
+    Supports both compiled binary extensions (.pyd/.so) and in-process execution.
     This bypasses LLM multi-turn reasoning loops and completes routine tasks in 1 turn.
     """
-    import os, json
+    import os, json, sys
     cat_clean = category.lower().strip()
-    exec_dir = os.path.join(os.path.dirname(__file__), "executors")
     
-    script_map = {
-        "messaging": "messaging_executor.py",
-        "chat": "messaging_executor.py",
-        "whatsapp": "messaging_executor.py",
-        "media": "media_executor.py",
-        "music": "media_executor.py",
-        "spotify": "media_executor.py",
-        "file": "file_executor.py",
-        "code": "file_executor.py"
-    }
-    
-    script_name = script_map.get(cat_clean, "messaging_executor.py")
-    script_path = os.path.join(exec_dir, script_name)
-    
-    if not os.path.exists(script_path):
-        return f"Error: Category executor script {script_name} not found."
-        
-    is_win = platform.system() == "Windows"
+    # Ensure parent dir and executors dir are on sys.path
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_py = os.path.join(base_dir, "venv", "Scripts", "python.exe") if is_win else os.path.join(base_dir, "venv", "bin", "python")
-    python_bin = sys.executable or (venv_py if os.path.exists(venv_py) else "python")
+    exec_dir = os.path.join(base_dir, "executors")
+    for p in [base_dir, exec_dir]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
     try:
-        res = subprocess.run([python_bin, script_path, payload_json], capture_output=True, text=True, timeout=30)
-        return res.stdout.strip() or res.stderr.strip() or "Category task executed successfully."
+        data = json.loads(payload_json) if isinstance(payload_json, str) and payload_json else (payload_json if isinstance(payload_json, dict) else {})
+    except Exception:
+        data = {}
+
+    try:
+        if cat_clean in ["messaging", "chat", "whatsapp"]:
+            try:
+                from executors.messaging_executor import run_messaging_task
+            except ImportError:
+                import messaging_executor as run_messaging_task_mod
+                run_messaging_task = run_messaging_task_mod.run_messaging_task
+            res = run_messaging_task(data)
+            return json.dumps(res) if isinstance(res, dict) else str(res)
+
+        elif cat_clean in ["media", "music", "spotify"]:
+            try:
+                from executors.media_executor import run_media_task
+            except ImportError:
+                import media_executor as run_media_task_mod
+                run_media_task = run_media_task_mod.run_media_task
+            res = run_media_task(data)
+            return json.dumps(res) if isinstance(res, dict) else str(res)
+
+        elif cat_clean in ["file", "code"]:
+            try:
+                from executors.file_executor import run_file_task
+            except ImportError:
+                import file_executor as run_file_task_mod
+                run_file_task = run_file_task_mod.run_file_task
+            res = run_file_task(data)
+            return json.dumps(res) if isinstance(res, dict) else str(res)
+
+        else:
+            try:
+                from executors.messaging_executor import run_messaging_task
+            except ImportError:
+                import messaging_executor as run_messaging_task_mod
+                run_messaging_task = run_messaging_task_mod.run_messaging_task
+            res = run_messaging_task(data)
+            return json.dumps(res) if isinstance(res, dict) else str(res)
     except Exception as e:
         return f"Category task execution failed: {str(e)}"
+

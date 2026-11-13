@@ -2,11 +2,19 @@ import sys
 import os
 import json
 
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
+try:
+    _cur_file = os.path.abspath(__file__)
+    parent_dir = os.path.dirname(os.path.dirname(_cur_file))
+except Exception:
+    parent_dir = os.getcwd()
+
+if parent_dir and parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from os_protocols import OSProtocols
+try:
+    from os_protocols import OSProtocols
+except ImportError:
+    from os_protocol import OSProtocols
 
 def run_file_task(data: dict) -> dict:
     """

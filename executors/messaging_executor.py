@@ -5,11 +5,19 @@ import os
 import subprocess
 import tempfile
 
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
+try:
+    _cur_file = os.path.abspath(__file__)
+    parent_dir = os.path.dirname(os.path.dirname(_cur_file))
+except Exception:
+    parent_dir = os.getcwd()
+
+if parent_dir and parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from os_protocols import OSProtocols
+try:
+    from os_protocols import OSProtocols
+except ImportError:
+    from os_protocol import OSProtocols
 
 LOG_DIR = os.environ.get("TILUX_USER_DATA_DIR") or tempfile.gettempdir()
 FAILURE_LOG = os.path.join(LOG_DIR, "failure_log.json")

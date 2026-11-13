@@ -2,6 +2,17 @@ import os
 import sys
 import subprocess
 
+# Ensure server directory and executors directory are always first in sys.path
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+if _current_dir and _current_dir not in sys.path:
+    sys.path.insert(0, _current_dir)
+_exec_dir = os.path.join(_current_dir, "executors")
+if os.path.exists(_exec_dir) and _exec_dir not in sys.path:
+    sys.path.insert(0, _exec_dir)
+_user_data = os.environ.get("TILUX_USER_DATA_DIR")
+if _user_data and os.path.exists(_user_data) and _user_data not in sys.path:
+    sys.path.insert(1, _user_data)
+
 if sys.version_info < (3, 11):
     print("\n[CRITICAL ERROR] Tilux ASM requires Python 3.11 or higher to run.")
     print(f"You are currently running Python {sys.version_info.major}.{sys.version_info.minor}.")
@@ -917,8 +928,10 @@ def get_system_stats():
 def trigger_action():
     if not verify_request_auth():
         return jsonify({"error": "Unauthorized"}), 401
-    action = request.json.get("action", "")
-    from os_protocols import OSProtocols
+    try:
+        from os_protocols import OSProtocols
+    except ImportError:
+        from os_protocol import OSProtocols
     if action in ["browser", "Web Search", "web search"]:
         OSProtocols.open_url("https://www.google.com")
     elif action in ["calculator", "Calculator", "calc"]:

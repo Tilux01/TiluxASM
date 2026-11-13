@@ -35,7 +35,9 @@
           "!**/.env*",
           "!**/database.rules.json",
           "!**/firebase.json",
-          "!**/diagnose*"
+          "!**/diagnose*",
+          "!**/*.build/**",
+          "!**/*.pyc"
         ]
       }
     ],
@@ -63,7 +65,8 @@
       "installerHeaderIcon": "build/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Tilux"
+      "shortcutName": "Tilux",
+      "include": "build/installer.nsh"
     },
 
     "mac": {

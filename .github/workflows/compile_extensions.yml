@@ -31,7 +31,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip nuitka
           pip install -r requirements.txt || true
-          for mod in brain.py sfdcr.py vault.py actions.py cloud_bridge.py usage_tracker.py reflex_router.py os_protocols.py os_protocol.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
+          for mod in brain.py sfdcr.py vault.py credentials.py actions.py cloud_bridge.py usage_tracker.py reflex_router.py os_protocols.py os_protocol.py mac_permissions.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
             if [ -f "$mod" ]; then
               out_dir="$(dirname "$mod")"
               python -m nuitka --module "$mod" --enable-plugin=anti-bloat --output-dir="$out_dir" || true
@@ -55,22 +55,19 @@ jobs:
           os.makedirs(dist_dir, exist_ok=True)
           os.makedirs(os.path.join(dist_dir, "executors"), exist_ok=True)
 
-          # 1. Copy required runtime assets & entrypoints
+          # 1. Copy required public runtime entrypoints (proprietary modules are compiled binaries ONLY)
           base_runtime_files = [
-              "server.py", "install.py", "autostart.py", "voice.py",
+              "server.py", "install.py", "restart_server.py", "autostart.py", "voice.py",
               "wake_word.py", "history_manager.py", "memory.py", "tunnel_manager.py",
               "requirements.txt", "settings.json", "user_personal.json", "README.md",
-              "wake_greetings.json", "voices.json", "credentials.py",
-              "os_protocols.py", "os_protocol.py", "reflex_router.py"
+              "wake_greetings.json", "voices.json"
           ]
           for f in base_runtime_files:
               if os.path.exists(f):
                   shutil.copy2(f, dist_dir)
 
-          # Copy executors python sources as fallbacks
-          if os.path.exists("executors"):
-              for ef in glob.glob("executors/*.py"):
-                  shutil.copy2(ef, os.path.join(dist_dir, "executors"))
+          if os.path.exists("executors/__init__.py"):
+              shutil.copy2("executors/__init__.py", os.path.join(dist_dir, "executors", "__init__.py"))
 
           # 2. Copy static and templates directories
           for d in ["static", "templates"]:
@@ -112,39 +109,62 @@ jobs:
           if is_win:
               bin_pattern = "*.pyd"
               exec_pattern = "executors/*.pyd"
+              bin_ext = ".pyd"
           else:
               bin_pattern = "*.so"
               exec_pattern = "executors/*.so"
+              bin_ext = ".so"
 
           for f in glob.glob(bin_pattern):
               shutil.copy2(f, dist_dir)
           for f in glob.glob(exec_pattern):
               shutil.copy2(f, os.path.join(dist_dir, "executors"))
 
-          # 4. Proprietary modules to NEVER leak in plaintext if compiled binary exists
+          # Also create clean untagged aliases for universal import compatibility (e.g. brain.pyd, brain.so)
+          for folder in [dist_dir, os.path.join(dist_dir, "executors")]:
+              if os.path.exists(folder):
+                  for f in os.listdir(folder):
+                      if f.endswith(bin_ext):
+                          base = f.split(".")[0]
+                          clean_name = f"{base}{bin_ext}"
+                          clean_path = os.path.join(folder, clean_name)
+                          if not os.path.exists(clean_path):
+                              try:
+                                  shutil.copy2(os.path.join(folder, f), clean_path)
+                              except Exception:
+                                  pass
+
+          # 4. Strict verification: ensure binary exists and no plaintext .py or .pyc remains in dist
           proprietary_modules = [
-              "brain", "sfdcr", "vault", "actions", "cloud_bridge",
+              "brain", "sfdcr", "vault", "credentials", "actions", "cloud_bridge",
               "usage_tracker", "reflex_router", "os_protocols", "os_protocol",
+              "mac_permissions",
               "executors/file_executor",
               "executors/media_executor", "executors/messaging_executor"
           ]
 
-          # Ensure no uncompiled proprietary .py files are copied if binary exists
+          missing_binaries = []
           for mod in proprietary_modules:
               mod_dir = os.path.dirname(mod)
               mod_base = os.path.basename(mod)
               target_sub = os.path.join(dist_dir, mod_dir) if mod_dir else dist_dir
-              bin_ext = ".pyd" if is_win else ".so"
               has_bin = any(f.startswith(mod_base) and f.endswith(bin_ext) for f in os.listdir(target_sub)) if os.path.exists(target_sub) else False
-              if has_bin:
-                  py_file = os.path.join(dist_dir, f"{mod}.py")
-                  if os.path.exists(py_file):
-                      os.remove(py_file)
+              if not has_bin:
+                  missing_binaries.append(mod)
+
+              # Unconditionally purge any plaintext .py or .pyc files for proprietary modules
+              for ext_to_purge in [".py", ".pyc"]:
+                  leaked_file = os.path.join(dist_dir, f"{mod}{ext_to_purge}")
+                  if os.path.exists(leaked_file):
+                      os.remove(leaked_file)
+
+          if missing_binaries:
+              print(f"[CI Dist Build] Warning: The following modules did not produce a binary: {missing_binaries}")
 
           # Purge any leaked test files, rules or configs from the bundle
           banned_items = [
-              "parse_linkedin.py", "play_music.py", "database.rules.json",
-              "firebase.json", ".env", "test_sfdcr.so",
+              "main.py", "make_icon.py", "parse_linkedin.py", "play_music.py",
+              "database.rules.json", "firebase.json", ".env", "test_sfdcr.so",
               "firebase_sync.py", "diagnose_windows.bat", "diagnose_windows.py"
           ]
           for item in banned_items:
@@ -154,6 +174,11 @@ jobs:
                       shutil.rmtree(target)
                   else:
                       os.remove(target)
+
+          # Clean up temporary Nuitka build directories
+          for b_dir in glob.glob("*.build") + glob.glob("executors/*.build"):
+              if os.path.exists(b_dir):
+                  shutil.rmtree(b_dir, ignore_errors=True)
 
           print(f"[CI Dist Build] Successfully assembled clean OS-specific distribution for {target_os}:")
           for root, dirs, files in os.walk(dist_dir):
@@ -170,8 +195,8 @@ jobs:
           unzip -q python_embed.zip -d tilux_engine_dist/runtime
           rm -f python_embed.zip
 
-          # Enable site-packages & local imports in python311._pth
-          printf "python311.zip\r\n.\r\nLib\\\\site-packages\r\nLib/site-packages\r\n..\r\nimport site\r\n" > tilux_engine_dist/runtime/python311._pth
+          # Enable site-packages, local imports, and executors in python311._pth
+          printf "python311.zip\r\n.\r\n..\r\n..\\\\executors\r\nLib\\\\site-packages\r\nLib/site-packages\r\nimport site\r\n" > tilux_engine_dist/runtime/python311._pth
 
           # Install pip into embedded Python
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py

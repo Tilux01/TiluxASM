@@ -247,7 +247,16 @@ async function setupAndRunBackend() {
 
 function exitPythonProcess() {
     if (pyProc) {
-        pyProc.kill();
+        if (process.platform === 'win32' && pyProc.pid) {
+            try {
+                const { execSync } = require('child_process');
+                execSync(`taskkill /F /T /PID ${pyProc.pid}`, { stdio: 'ignore' });
+            } catch (_) {
+                try { pyProc.kill(); } catch (_) {}
+            }
+        } else {
+            try { pyProc.kill(); } catch (_) {}
+        }
         pyProc = null;
     }
 }
@@ -361,6 +370,10 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
     }
+});
+
+app.on('before-quit', () => {
+    exitPythonProcess();
 });
 
 app.on('will-quit', () => {

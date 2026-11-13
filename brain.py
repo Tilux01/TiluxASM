@@ -1420,16 +1420,17 @@ class Brain:
                         
                     # Append the request to history.
                     self.history.append(message.to_dict() if hasattr(message, "to_dict") else message)
-                    think_event["status"] = "completed"
-                    if "start_time" in think_event:
-                        dur = round(time.time() - think_event["start_time"], 1)
-                        think_event["duration"] = f"{dur}s"
-                    if message.content and message.content.strip():
-                        c_th = clean_ai_thought(message.content)
-                        think_event["content"] = sanitize_text(c_th or "Analyzed request and planned execution.").strip()
-                    else:
-                        tool_names = ", ".join([tc.function.name for tc in message.tool_calls])
-                        think_event["content"] = f"Planned action: `{tool_names}`"
+                    if think_event and isinstance(think_event, dict):
+                        think_event["status"] = "completed"
+                        if "start_time" in think_event:
+                            dur = round(time.time() - think_event["start_time"], 1)
+                            think_event["duration"] = f"{dur}s"
+                        if message.content and message.content.strip():
+                            c_th = clean_ai_thought(message.content)
+                            think_event["content"] = sanitize_text(c_th or "Analyzed request and planned execution.").strip()
+                        else:
+                            tool_names = ", ".join([tc.function.name for tc in message.tool_calls])
+                            think_event["content"] = f"Planned action: `{tool_names}`"
                     self.notify_event_update()
                     
                     for tool_call in message.tool_calls:
@@ -1666,16 +1667,17 @@ class Brain:
                     reply = sanitize_text(message.content or "")
                     if is_voice and any(k in reply.lower() for k in ["chatbox", "workspace"]):
                         self.pending_heavy_task = text
-                    think_event["status"] = "completed"
-                    if "start_time" in think_event:
-                        dur = round(time.time() - think_event["start_time"], 1)
-                        think_event["duration"] = f"{dur}s"
-                    
-                    if not think_event.get("content"):
-                        if len(steps_taken) > 0:
-                            think_event["content"] = "Analyzed execution results and prepared final response."
-                        else:
-                            think_event["content"] = "Processed user query and generated response."
+                    if think_event and isinstance(think_event, dict):
+                        think_event["status"] = "completed"
+                        if "start_time" in think_event:
+                            dur = round(time.time() - think_event["start_time"], 1)
+                            think_event["duration"] = f"{dur}s"
+                        
+                        if not think_event.get("content"):
+                            if len(steps_taken) > 0:
+                                think_event["content"] = "Analyzed execution results and prepared final response."
+                            else:
+                                think_event["content"] = "Processed user query and generated response."
 
                     self.notify_event_update()
                     self.history.append({"role": "assistant", "content": reply})
