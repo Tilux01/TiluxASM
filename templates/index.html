@@ -211,7 +211,7 @@
             <div class="sidebar-scrollable" style="flex: 1; overflow-y: auto; margin-right: -10px; padding-right: 10px;">
                 <!-- Tab 1: System Resources Panel -->
                 <div id="sidebar-system-panel">
-                    <button class="new-chat-btn" onclick="location.reload()">
+                    <button class="new-chat-btn" onclick="restartServerAndApp()">
                         <i class="fa-solid fa-rotate-right"></i> Reboot System
                     </button>
                     
@@ -412,6 +412,21 @@
                                 <i class="fa-solid fa-eye"></i>
                             </button>
                         </div>
+                    </div>
+                </div>
+
+                <!-- System & Server Operations Card -->
+                <div class="settings-card" style="background: rgba(24,24,27,0.8); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                    <h3 style="font-size: 16px; font-weight: 500; margin-bottom: 8px; color: #e4e4e7;">
+                        <i class="fa-solid fa-server" style="color: #38bdf8; margin-right: 6px;"></i> System & Server Operations
+                    </h3>
+                    <div style="font-size: 12px; color: #a1a1aa; margin-bottom: 16px;">
+                        Terminates active backend server processes across Windows, Linux, and macOS, frees port 8932, and restarts both the server and desktop application.
+                    </div>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                        <button type="button" class="btn-outline" onclick="restartServerAndApp()" style="color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08); font-size: 13px; padding: 10px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                            <i class="fa-solid fa-arrows-rotate"></i> Restart Server & App
+                        </button>
                     </div>
                 </div>
             </div>

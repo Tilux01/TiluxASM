@@ -239,8 +239,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             el.dataset.completed = "true";
                             el.dataset.contentHash = contentStr;
                             let durStr = ev.duration ? ` for ${ev.duration}` : "";
-                            let label = ev.type === "think" ? `Thought${durStr}` : `Ran a command${durStr}`;
-                            let content = ev.content ? (typeof marked !== 'undefined' ? String(marked.parse(String(ev.content).trim())).trim().replace(/(<p>\s*(<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|\s)+$/gi, '').trim() : ev.content.replace(/</g, "&lt;").replace(/>/g, "&gt;")) : "Finished thinking.";
+                            let rawEvContent = ev.content || "";
+                            if (ev.type === "think" && /\b(?:rule|rules|instruction|prompt|guardrail|policy|cannot\s+reveal|not\s+reveal|share\s+information)\b/i.test(rawEvContent)) {
+                                rawEvContent = "Analyzed query and planned execution.";
+                            }
+                            let content = rawEvContent ? (typeof marked !== 'undefined' ? String(marked.parse(String(rawEvContent).trim())).trim().replace(/(<p>\s*(<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|\s)+$/gi, '').trim() : rawEvContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")) : "Finished thinking.";
                             el.innerHTML = `<details class="ai-steps-details"${isOpen ? ' open' : ''}><summary class="ai-steps-summary"><i class="fa-solid fa-chevron-right arrow-icon"></i> ${label}</summary><div class="ai-step"><i class="fa-solid fa-code-commit" style="margin-top: 4px;"></i> <div class="ai-step-content">${content}</div></div></details>`;
                             didUpdate = true;
                         }
@@ -579,11 +582,31 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.triggerAction = async function(action) {
-        await fetch('http://127.0.0.1:8932/api/trigger', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: action })
-        });
+        let promptText = "";
+        if (action === 'music' || action === 'Play Music') {
+            promptText = "Play music";
+        } else if (action === 'browser' || action === 'Web Search') {
+            promptText = "Open browser to search the web";
+        } else if (action === 'calculator' || action === 'Calculator') {
+            promptText = "Open calculator";
+        } else {
+            promptText = String(action);
+        }
+
+        try {
+            fetch('/api/trigger', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            }).catch(() => {});
+        } catch(e) {}
+
+        if (inputField) {
+            inputField.value = promptText;
+            if (typeof sendText === 'function') {
+                await sendText(false);
+            }
+        }
     };
 
     async function fetchSystemStats() {
@@ -908,7 +931,12 @@ document.addEventListener('DOMContentLoaded', () => {
             initialView.classList.remove('fade-out');
             initialView.style.display = '';
         }
-        if (orbContainer) orbContainer.classList.remove('docked');
+        if (orbContainer) {
+            orbContainer.classList.remove('docked');
+            if (initialView && !initialView.contains(orbContainer)) {
+                initialView.insertBefore(orbContainer, initialView.firstChild);
+            }
+        }
         fetchDesktopHistory();
     };
 
@@ -1040,4 +1068,39 @@ document.addEventListener('keydown', function(e) {
         e.stopPropagation();
     }
 });
+
+// --- CROSS-PLATFORM RESTART SERVER & MAIN APP ---
+window.restartServerAndApp = async function() {
+    if (!confirm("Restart both the Tilux server and the desktop application?")) return;
+
+    showToast("Initiating complete server & app restart...", "info");
+
+    try {
+        await fetch('http://127.0.0.1:8932/api/restart_server', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ restart_app: true })
+        });
+    } catch(e) {}
+
+    showToast("Rebooting server & app... Reconnecting in 3s", "warning");
+
+    let attempts = 0;
+    const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+            const res = await fetch('http://127.0.0.1:8932/api/host_info', { cache: 'no-store' });
+            if (res.ok) {
+                clearInterval(pollInterval);
+                showToast("Server reconnected successfully!", "success");
+                setTimeout(() => window.location.reload(), 600);
+            }
+        } catch(e) {}
+        if (attempts > 30) {
+            clearInterval(pollInterval);
+            showToast("Server restart taking longer than expected. Please refresh page.", "error");
+        }
+    }, 800);
+};
+
 

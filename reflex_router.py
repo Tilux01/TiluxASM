@@ -23,14 +23,14 @@ _RE_VOL_DOWN = re.compile(r'^(?:turn\s+(?:the\s+)?volume\s+down|decrease\s+(?:th
 _RE_VOL_SET = re.compile(r'^(?:set\s+(?:the\s+)?volume\s+to|volume)\s+(\d{1,3})(?:\s*(?:%|percent))?$', re.I)
 _RE_SPOTIFY_PLAY = re.compile(r'^(?:play|search)\s+(.+?)\s+on\s+spotify$', re.I)
 
-_RE_APP_OPEN = re.compile(r'^(?:open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)$', re.I)
+_RE_APP_OPEN = re.compile(r'^(?:open\s+up|open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)$', re.I)
 _RE_TIME = re.compile(r'^(?:what\s+time\s+is\s+it|tell\s+me\s+the\s+time|current\s+time|what(?:\'s|\s+is)\s+the\s+time)$', re.I)
 _RE_DATE = re.compile(r'^(?:what\s+date\s+is\s+it|what(?:\'s|\s+is)\s+today(?:\'s)?\s+date|today(?:\'s)?\s+date|what(?:\'s|\s+is)\s+the\s+date)$', re.I)
 _RE_DAY = re.compile(r'^(?:what\s+day\s+is\s+it|what\s+day\s+of\s+the\s+week\s+is\s+it)$', re.I)
 
 _RE_GREETING = re.compile(r'^(?:hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening)(?:\s+tilux|\s+assistant)?$', re.I)
 _RE_IDENTITY = re.compile(r'^(?:who\s+are\s+you|what\s+are\s+you|what(?:\'s|\s+is)\s+your\s+name)$', re.I)
-_RE_DISMISS = re.compile(r'^(?:stop|cancel|never\s*mind|dismiss|close|shut\s*up|quiet|exit)$', re.I)
+_RE_EMERGENCY_STOP = re.compile(r'^(?:stop|cancel|shut\s*up|quiet|be\s+quiet|silence)$', re.I)
 
 # App alias mapping to ensure cross-platform resolution
 _APP_ALIASES = {
@@ -91,14 +91,15 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
     if not clean:
         return None
 
-    # 1. Immediate Dismissal / Cancel
-    if _RE_DISMISS.match(clean):
+    # 1. Immediate Emergency Stop / Silence
+    if _RE_EMERGENCY_STOP.match(clean):
         return {
             "handled": True,
             "action": "dismiss",
             "reply": "",
-            "sub_text": "Dismissed",
-            "aborted": True
+            "sub_text": "Stopped",
+            "aborted": True,
+            "close_voice_assistant": True
         }
 
     # 2. Media Controls (MPRIS2 / Win32 / AppleScript)
@@ -188,6 +189,15 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         }
 
     # 3. Web Search Reflex (Google / Search for)
+    if re.match(r'^(?:web\s+search|search\s+the\s+web|open\s+(?:the\s+)?browser(?:\s+to\s+search(?:\s+the\s+web)?)?)$', clean, re.I):
+        res = OSProtocols.open_url("https://www.google.com")
+        return {
+            "handled": True,
+            "action": "web_search",
+            "reply": "Opening browser for web search.",
+            "sub_text": "Opened Google"
+        }
+
     search_match = re.match(r'^(?:search\s+(?:for\s+)?|google\s+)(.+)$', clean, re.I)
     if search_match:
         q = search_match.group(1).strip()
@@ -201,15 +211,35 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             "sub_text": f"Google: {q}"
         }
 
-    # 4. Universal App Launching & Website Opening
+    # 4. Workspace Chatbox Fast-Path
+    if re.search(r'^(?:open|show|launch|start)\s+(?:the\s+)?(?:workspace\s+(?:chatbox|chat\s*box|chatbot|chat)|workspace|chatbox|chat\s*box)$', clean, re.I):
+        try:
+            import server
+            server.trigger_open_chat("")
+            return {
+                "handled": True,
+                "action": "open_workspace_chatbox",
+                "reply": "Opening the workspace chatbox.",
+                "sub_text": "Opening Workspace..."
+            }
+        except Exception as e:
+            print(f"[Reflex] Error triggering open chat: {e}")
+
+    # 5. Universal App Launching & Website Opening
     app_match = _RE_APP_OPEN.match(clean)
     if app_match:
         raw_target = app_match.group(1).strip()
-        # Verify no dangerous shell chaining characters
-        if not re.search(r'[;&|><`$\n]', raw_target):
+        # Clean leading 'the ' or 'a ' if present: e.g. "open the chrome" -> "chrome"
+        raw_target = re.sub(r'^(?:the|a|an)\s+', '', raw_target, flags=re.I).strip()
+        words = raw_target.lower().split()
+        
+        # Guard: App names are concise (<= 3 words) and should not contain conversational pronouns/filler
+        CONVERSATIONAL_WORDS = {"i", "you", "we", "me", "my", "your", "said", "say", "saying", "tell", "told", "ask", "asked", "here", "there", "is", "was", "are", "were", "what", "how", "why", "where", "who", "when", "can", "could", "should", "would", "please", "help", "work", "that", "this"}
+        
+        if len(words) <= 3 and not any(w in CONVERSATIONAL_WORDS for w in words) and not re.search(r'[;&|><`$\n]', raw_target):
             target_lower = raw_target.lower()
             
-            # 4a. Is it a well-known site shortcut or URL?
+            # 5a. Is it a well-known site shortcut or URL?
             if target_lower in _SITE_SHORTCUTS or "." in target_lower or target_lower.startswith("http"):
                 if target_lower in _SITE_SHORTCUTS:
                     target_url = _SITE_SHORTCUTS[target_lower]
@@ -218,25 +248,30 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
                 else:
                     target_url = f"https://{target_lower}"
                 res = OSProtocols.open_url(target_url)
-                pretty_name = target_lower.replace("https://", "").replace("http://", "").replace("www.", "").split(".")[0].title()
-                return {
-                    "handled": True,
-                    "action": "open_url",
-                    "reply": f"Opening {pretty_name}.",
-                    "sub_text": res.get("output", f"Opened {target_url}")
-                }
+                if res.get("status") == "success":
+                    pretty_name = target_lower.replace("https://", "").replace("http://", "").replace("www.", "").split(".")[0].title()
+                    return {
+                        "handled": True,
+                        "action": "open_url",
+                        "reply": f"Opening {pretty_name}.",
+                        "sub_text": res.get("output", f"Opened {target_url}")
+                    }
 
-            # 4b. Universal App Launch
-            raw_app = re.sub(r'\s+(?:app|application)$', '', target_lower)
+            # 5b. Universal App Launch
+            raw_app = re.sub(r'\s+(?:app|application)$', '', target_lower).strip()
             target_app = _APP_ALIASES.get(raw_app, raw_app)
             res = OSProtocols.open_app(target_app)
-            pretty_name = raw_app.title()
-            return {
-                "handled": True,
-                "action": f"launch_{target_app}",
-                "reply": f"Opening {pretty_name}.",
-                "sub_text": res.get("output", f"Launched {pretty_name}")
-            }
+            # Only treat as handled if OS confirmed the app was successfully found and launched!
+            if res.get("status") == "success":
+                pretty_name = raw_app.title()
+                return {
+                    "handled": True,
+                    "action": f"launch_{target_app}",
+                    "reply": f"Opening {pretty_name}.",
+                    "sub_text": res.get("output", f"Launched {pretty_name}")
+                }
+            else:
+                print(f"[Reflex] App '{target_app}' not found on system. Falling through to LLM.")
 
     # 4. System Time / Date / Day
     if _RE_TIME.match(clean):

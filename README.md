@@ -97,7 +97,7 @@ You don't need to be at your desk to control your PC. Tilux ASM features a beaut
 
 ## Author
 
-* **Adekola Israel** ([@Tilux01](https://github.com/Tilux01))
+* **Tilux** ([@Tilux01](https://github.com/Tilux01)) — Adekola Israel, Software Engineer in Ogbomoso (SQI College of ICT graduate)
 * **Portfolio:** [portfolio-jet-phi-32.vercel.app](https://portfolio-jet-phi-32.vercel.app/)
 * **LinkedIn:** [Adekola Israel](https://www.linkedin.com/in/israel-adekola-a873872)
 

@@ -149,6 +149,16 @@ def widget_state_endpoint():
         b_status = getattr(brain, "current_status", "")
         if b_status:
             sub = b_status
+            
+    # Clean process sub_text so user's query or command never echoes
+    main_q = (WIDGET_STATE.get("main_text") or "").strip().lower()
+    if main_q and main_q not in ["listening...", "speaking...", "transcribing..."] and sub:
+        sub_l = sub.lower()
+        if main_q in sub_l or (len(main_q) > 8 and any(phrase in sub_l for phrase in [main_q[:15], main_q[-15:]])):
+            sub = "Thinking..."
+        elif sub_l.startswith("analyzing"):
+            sub = "Thinking..."
+            
     return jsonify({
         "main_text": WIDGET_STATE.get("main_text", ""),
         "sub_text": sub,
@@ -188,13 +198,17 @@ def _on_wake_word(initial_phrase=""):
     time.sleep(0.05)
     brain.abort_flag = False
     
-    # Generate snappy, ultra-short wake acknowledgment if no trailing phrase
+    # Clean initial phrase - only consider it a trailing command if it contains real words
+    import re
+    clean_initial = (initial_phrase or "").strip(" ,.:;-\t\n")
+    if not re.search(r'[a-zA-Z0-9]', clean_initial):
+        clean_initial = ""
+    initial_phrase = clean_initial
+
+    # Generate full wake greeting based on configured AI tone if no trailing phrase
     wake_greeting = ""
     if not initial_phrase:
-        raw_greeting = brain.generate_wake_acknowledgment()
-        # Ensure wake greeting is snappy (under 4 words max) to never delay the user
-        words = raw_greeting.split()
-        wake_greeting = " ".join(words[:3]) if len(words) > 3 else raw_greeting
+        wake_greeting = brain.generate_wake_acknowledgment()
     
     import subprocess
     import threading
@@ -230,7 +244,7 @@ def _on_wake_word(initial_phrase=""):
         try:
             # 1. If no initial phrase was detected, speak quick wake acknowledgment
             if wake_greeting and not queued_initial and is_voice_assistant_active and not brain.abort_flag:
-                print(f"[Server] Speaking quick wake acknowledgment: '{wake_greeting}'")
+                print(f"[Server] Speaking wake acknowledgment: '{wake_greeting}'")
                 WIDGET_STATE["main_text"] = "Speaking..."
                 WIDGET_STATE["sub_text"] = wake_greeting
                 WIDGET_STATE["is_speaking"] = True
@@ -240,7 +254,7 @@ def _on_wake_word(initial_phrase=""):
                     WIDGET_SPEECH_EVENT.clear()
                     WIDGET_STATE["speak_text"] = wake_greeting
                     word_count = len(wake_greeting.split())
-                    timeout_sec = max(1.2, (word_count * 0.25) + 0.5)
+                    timeout_sec = max(1.5, (word_count * 0.35) + 0.5)
                     WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                 else:
                     speak(wake_greeting)
@@ -285,13 +299,36 @@ def _on_wake_word(initial_phrase=""):
                 # Show user's transcribed question and initial thinking status
                 WIDGET_STATE["main_text"] = text
                 WIDGET_STATE["sub_text"] = "Thinking..."
+                WIDGET_STATE["thought_text"] = ""
+                WIDGET_STATE["command_text"] = ""
+                WIDGET_STATE["speak_text"] = ""
+                WIDGET_STATE["reply_text"] = ""
+                WIDGET_STATE["speak_id"] = 0
+                WIDGET_STATE["is_speaking"] = False
                 brain.abort_flag = False
 
                 # 2. Instant Reflex Fast-Path Check (< 50ms, zero tokens)
-                reflex_res = reflex_route(text)
+                try:
+                    reflex_res = reflex_route(text)
+                except Exception as e:
+                    print(f"[Server] ⚠️ Error during reflex_route check: {e}")
+                    reflex_res = None
                 if reflex_res:
                     print(f"[Server] ⚡ Reflex router handled: '{text}' -> {reflex_res.get('action')}")
                     if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
+                        reply_text = reflex_res.get("reply", "")
+                        if reply_text and is_voice_assistant_active and not brain.abort_flag:
+                            WIDGET_STATE["main_text"] = "Speaking..."
+                            WIDGET_STATE["sub_text"] = reply_text
+                            WIDGET_STATE["reply_text"] = reply_text
+                            WIDGET_STATE["is_speaking"] = True
+                            WIDGET_STATE["speak_id"] = time.time()
+                            if WIDGET_CLIENT_CAPS.get("browser_tts", False):
+                                WIDGET_SPEECH_EVENT.clear()
+                                WIDGET_STATE["speak_text"] = reply_text
+                                WIDGET_SPEECH_EVENT.wait(timeout=1.5)
+                            else:
+                                speak(reply_text)
                         break
                     reply_text = reflex_res.get("reply", "")
                     clean_sub = reflex_res.get("sub_text", "") or reply_text
@@ -314,54 +351,42 @@ def _on_wake_word(initial_phrase=""):
                     WIDGET_STATE["main_text"] = "Listening..."
                     continue
                 
-                # 3. Stream-to-Speech LLM Execution
-                streamer = None
-                if not WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                    from voice import SpeechStreamer
-                    def on_first_audio(sent):
-                        WIDGET_STATE["main_text"] = "Speaking..."
-                        WIDGET_STATE["sub_text"] = sent
-                        WIDGET_STATE["reply_text"] = sent
-                        WIDGET_STATE["is_speaking"] = True
-                    streamer = SpeechStreamer(on_chunk_start=on_first_audio)
-
-                def on_sentence(sent):
-                    if streamer:
-                        streamer.feed(sent)
-                    else:
-                        WIDGET_STATE["main_text"] = "Speaking..."
-                        WIDGET_STATE["sub_text"] = sent
-                        WIDGET_STATE["reply_text"] = sent
-                        WIDGET_STATE["speak_text"] = sent
-                        WIDGET_STATE["is_speaking"] = True
-
-                reply_data = brain.process_input(text, [], is_voice=True, on_sentence_chunk=on_sentence)
-                
-                if streamer:
-                    streamer.finish()
-                    streamer.wait(timeout=12.0)
+                # 3. AI Execution (Thinking is completely silent; only final response speaks)
+                reply_data = brain.process_input(text, [], is_voice=True)
                 
                 if brain.abort_flag or reply_data.get("aborted") or not is_voice_assistant_active:
                     break
                     
                 reply_text = reply_data.get("reply", "")
                 
-                # Browser TTS playback if active
-                if reply_text and WIDGET_CLIENT_CAPS.get("browser_tts", False) and is_voice_assistant_active and not brain.abort_flag:
+                # Speak final response
+                if reply_text and is_voice_assistant_active and not brain.abort_flag:
                     clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
                     WIDGET_STATE["main_text"] = "Speaking..."
                     WIDGET_STATE["sub_text"] = clean_widget_text
                     WIDGET_STATE["reply_text"] = reply_text
                     WIDGET_STATE["is_speaking"] = True
                     WIDGET_STATE["speak_id"] = time.time()
-                    WIDGET_SPEECH_EVENT.clear()
-                    WIDGET_STATE["speak_text"] = reply_text
-                    word_count = len(clean_widget_text.split())
-                    timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
-                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                    
+                    if WIDGET_CLIENT_CAPS.get("browser_tts", False):
+                        WIDGET_SPEECH_EVENT.clear()
+                        WIDGET_STATE["speak_text"] = reply_text
+                        word_count = len(clean_widget_text.split())
+                        timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
+                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                    else:
+                        speak(reply_text)
                     
                 WIDGET_STATE["is_speaking"] = False
+                WIDGET_STATE["speak_text"] = ""
+                WIDGET_STATE["reply_text"] = ""
+                WIDGET_STATE["speak_id"] = 0
                 WIDGET_STATE["sub_text"] = ""
+
+                if reply_data.get("close_voice_assistant", False):
+                    print("[Server] Voice assistant close requested by AI.")
+                    break
+
                 time.sleep(0.35)
                 WIDGET_STATE["main_text"] = "Listening..."
         finally:
@@ -371,6 +396,11 @@ def _on_wake_word(initial_phrase=""):
             time.sleep(0.15)
             is_voice_assistant_active = False
             brain.abort_flag = False
+            if current_widget_proc and current_widget_proc.poll() is None:
+                try:
+                    current_widget_proc.terminate()
+                except Exception:
+                    pass
             import wake_word
             wake_word.resume_wake_word()
                 
@@ -450,6 +480,56 @@ def manage_settings():
         else:
             wake_word.stop_wake_word()
         return jsonify({"status": "success"})
+
+@app.route("/api/restart_server", methods=["POST"])
+def restart_server_endpoint():
+    if not verify_request_auth():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.json if request.is_json else {}
+    restart_app = data.get("restart_app", True)
+    
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    restart_script = os.path.join(app_dir, "restart_server.py")
+    py_exe = sys.executable or "python3"
+    current_pid = os.getpid()
+
+    cmd = [py_exe, restart_script, "--kill-pid", str(current_pid), "--app-dir", app_dir]
+    if restart_app:
+        cmd.append("--restart-app")
+
+    print(f"[Server] Restart requested. Invoking: {' '.join(cmd)}")
+    
+    try:
+        import platform
+        if platform.system().lower() == "windows":
+            subprocess.Popen(
+                cmd,
+                cwd=app_dir,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                close_fds=True
+            )
+        else:
+            subprocess.Popen(
+                cmd,
+                cwd=app_dir,
+                start_new_session=True,
+                close_fds=True
+            )
+    except Exception as e:
+        print(f"[Server] Error launching restart helper: {e}")
+        return jsonify({"error": str(e)}), 500
+
+    def delayed_exit():
+        time.sleep(0.4)
+        os._exit(0)
+
+    import threading
+    threading.Thread(target=delayed_exit, daemon=True).start()
+    return jsonify({
+        "status": "restarting",
+        "message": "Tilux server & main app are restarting. Reconnecting..."
+    })
 
 @app.route("/api/clear_user_session", methods=["POST"])
 def clear_user_session():
@@ -840,14 +920,14 @@ def get_system_stats():
 def trigger_action():
     if not verify_request_auth():
         return jsonify({"error": "Unauthorized"}), 401
-    action = request.json.get("action")
+    action = request.json.get("action", "")
     from os_protocols import OSProtocols
-    if action == "browser":
-        OSProtocols.open_url("https://google.com")
-    elif action == "calculator":
+    if action in ["browser", "Web Search", "web search"]:
+        OSProtocols.open_url("https://www.google.com")
+    elif action in ["calculator", "Calculator", "calc"]:
         OSProtocols.open_app("calculator")
-    elif action == "music":
-        OSProtocols.play_spotify("top hits")
+    elif action in ["music", "Play Music", "play music"]:
+        OSProtocols.media_play_pause()
     elif action == "toggle_god_mode":
         state = request.json.get("state", False)
         import json, os

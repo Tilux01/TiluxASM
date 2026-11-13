@@ -583,7 +583,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             el.dataset.contentHash = contentStr;
                             let label = isThink ? "Thinking..." : "Running a command...";
                             if (contentStr) {
-                                let content = formatMarkdownAndProxyImages(contentStr);
+                                let rawRun = contentStr;
+                                if (isThink && /\b(?:rule|rules|instruction|prompt|guardrail|policy|cannot\s+reveal|not\s+reveal|share\s+information)\b/i.test(rawRun)) {
+                                    rawRun = "Analyzing request and planning execution...";
+                                }
+                                let content = formatMarkdownAndProxyImages(rawRun);
                                 const shouldOpenRunning = isThink || isOpen;
                                 el.innerHTML = `<details class="${eventClass}"${shouldOpenRunning ? ' open' : ''}><summary class="ai-steps-summary"><i class="fa-solid fa-circle-notch fa-spin" style="color: #8b5cf6;"></i> ${label}</summary><div class="ai-step"><i class="fa-solid fa-code-commit" style="margin-top: 4px;"></i> <div class="ai-step-content">${content}</div></div></details>`;
                             } else {
@@ -599,7 +603,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             let durStr = ev.duration ? ` for ${ev.duration}` : "";
                             let label = isThink ? `Thought${durStr}` : `Ran a command${durStr}`;
                             let defaultFallback = isThink ? "Analyzed query and planned execution." : "Command completed successfully.";
-                            let content = ev.content ? formatMarkdownAndProxyImages(ev.content) : defaultFallback;
+                            let rawContent = ev.content || "";
+                            if (isThink && /\b(?:rule|rules|instruction|prompt|guardrail|policy|cannot\s+reveal|not\s+reveal|share\s+information)\b/i.test(rawContent)) {
+                                rawContent = defaultFallback;
+                            }
+                            let content = rawContent ? formatMarkdownAndProxyImages(rawContent) : defaultFallback;
                             // ONLY thought blocks auto show / open on PC! Command blocks remain collapsed by default unless toggled open.
                             const shouldStayOpen = isThink ? true : isOpen;
                             el.innerHTML = `<details class="${eventClass}"${shouldStayOpen ? ' open' : ''}><summary class="ai-steps-summary"><i class="fa-solid fa-chevron-right arrow-icon"></i> ${label}</summary><div class="ai-step"><i class="fa-solid fa-code-commit" style="margin-top: 4px;"></i> <div class="ai-step-content">${content}</div></div></details>`;
@@ -1049,11 +1057,33 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.triggerAction = async function(action) {
-        await fetch('http://127.0.0.1:8932/api/trigger', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: action })
-        });
+        let promptText = "";
+        if (action === 'music' || action === 'Play Music') {
+            promptText = "Play music";
+        } else if (action === 'browser' || action === 'Web Search') {
+            promptText = "Open browser to search the web";
+        } else if (action === 'calculator' || action === 'Calculator') {
+            promptText = "Open calculator";
+        } else {
+            promptText = String(action);
+        }
+
+        // 1. Direct backend trigger for instantaneous OS action launch
+        try {
+            fetch('http://127.0.0.1:8932/api/trigger', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            }).catch(() => {});
+        } catch(e) {}
+
+        // 2. Populate chat input and submit to seamlessly transition to chat mode
+        if (inputField) {
+            inputField.value = promptText;
+            if (typeof sendText === 'function') {
+                await sendText(false);
+            }
+        }
     };
 
     async function fetchSystemStats() {
@@ -1753,7 +1783,12 @@ document.addEventListener('DOMContentLoaded', () => {
             initialView.classList.remove('fade-out');
             initialView.style.display = '';
         }
-        if (orbContainer) orbContainer.classList.remove('docked');
+        if (orbContainer) {
+            orbContainer.classList.remove('docked');
+            if (initialView && !initialView.contains(orbContainer)) {
+                initialView.insertBefore(orbContainer, initialView.firstChild);
+            }
+        }
         fetchDesktopHistory();
     };
 
@@ -1831,4 +1866,44 @@ document.addEventListener('keydown', function(e) {
         e.stopPropagation();
     }
 });
+
+// --- CROSS-PLATFORM RESTART SERVER & MAIN APP ---
+window.restartServerAndApp = async function() {
+    if (!confirm("Restart both the Tilux server and the desktop application?")) return;
+
+    showToast("Initiating complete server & app restart...", "info");
+
+    if (window.electronAPI && typeof window.electronAPI.restartAppAndServer === 'function') {
+        window.electronAPI.restartAppAndServer();
+        return;
+    }
+
+    try {
+        await fetch('http://127.0.0.1:8932/api/restart_server', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ restart_app: true })
+        });
+    } catch(e) {}
+
+    showToast("Rebooting server & app... Reconnecting in 3s", "warning");
+
+    let attempts = 0;
+    const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+            const res = await fetch('http://127.0.0.1:8932/api/host_info', { cache: 'no-store' });
+            if (res.ok) {
+                clearInterval(pollInterval);
+                showToast("Server reconnected successfully!", "success");
+                setTimeout(() => window.location.reload(), 600);
+            }
+        } catch(e) {}
+        if (attempts > 30) {
+            clearInterval(pollInterval);
+            showToast("Server restart taking longer than expected. Please refresh page.", "error");
+        }
+    }, 800);
+};
+
 

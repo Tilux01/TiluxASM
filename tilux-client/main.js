@@ -487,3 +487,29 @@ ipcMain.on('show-notification', (event, text) => {
         notif.show();
     }
 });
+
+ipcMain.on('restart-app-and-server', () => {
+    console.log('[Tilux] Restarting application and backend server...');
+    exitPythonProcess();
+
+    const backendCwd = app.isPackaged ? path.join(app.getPath('userData'), 'backend') : path.join(__dirname, '..');
+    const pyExe = process.platform === 'win32'
+        ? (fs.existsSync(path.join(backendCwd, 'venv', 'Scripts', 'python.exe')) ? path.join(backendCwd, 'venv', 'Scripts', 'python.exe') : 'python')
+        : (fs.existsSync(path.join(backendCwd, 'venv', 'bin', 'python')) ? path.join(backendCwd, 'venv', 'bin', 'python') : 'python3');
+
+    const restartScript = path.join(backendCwd, 'restart_server.py');
+    try {
+        const { spawn } = require('child_process');
+        spawn(pyExe, [restartScript, '--restart-app', '--no-wait'], {
+            cwd: backendCwd,
+            detached: true,
+            stdio: 'ignore'
+        }).unref();
+    } catch(e) {
+        console.error('Error invoking restart script from Electron:', e);
+    }
+
+    app.relaunch();
+    app.exit(0);
+});
+

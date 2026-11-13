@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>Tilux ASM v1.0 - System Report</title>
+<style>
+body { font-family: Georgia, serif; font-size: 11.5pt; line-height: 1.55; color:#1a1a1a; margin: 38pt 42pt; }
+h1 { font-family: Helvetica, Arial, sans-serif; font-size: 24pt; margin:0 0 4pt 0; color:#0b2d52; }
+.sub { font-family: Helvetica, Arial, sans-serif; font-size:10.5pt; color:#5a5a5a; margin-bottom:22pt; letter-spacing:0.4pt;}
+h2 { font-family: Helvetica, Arial, sans-serif; font-size: 14pt; color:#0b2d52; margin-top:22pt; margin-bottom:6pt; border-bottom:1.5pt solid #d6dee8; padding-bottom:3pt;}
+h3 { font-family: Helvetica, Arial, sans-serif; font-size: 11.5pt; color:#14496f; margin-top:14pt; margin-bottom:4pt;}
+p { margin: 0 0 8pt 0; text-align: justify; }
+ul { margin: 0 0 10pt 16pt; padding:0; }
+li { margin-bottom: 4pt; }
+.tagline { border-left: 4pt solid #0b2d52; background:#f2f5f9; padding:11pt 14pt; margin: 14pt 0 18pt 0; font-size: 12.5pt; font-style: italic; }
+table { border-collapse: collapse; width: 100%; font-family: Helvetica, Arial, sans-serif; font-size: 9.5pt; margin: 8pt 0 14pt 0;}
+td, th { border: 0.75pt solid #c3ccd8; padding: 5pt 7pt; text-align:left; vertical-align: top;}
+th { background: #0b2d52; color: #ffffff; font-weight: bold; }
+.small { font-size: 9pt; color:#666666; font-family: Helvetica, Arial, sans-serif;}
+.pb { page-break-before: always; }
+</style></head><body>
+
+<h1>TILUX ASM v1.0</h1>
+<div class="sub">AUTONOMOUS SYSTEM MANAGER &nbsp;&middot;&nbsp; OFFICIAL SYSTEM REPORT &nbsp;&middot;&nbsp; PREPARED FOR DISTRIBUTION</div>
+
+<div class="tagline">"Tilux ASM v1.0 is a voice-first autonomous desktop assistant that listens to plain spoken English, reasons about your intent, and then operates the computer itself &mdash; opening applications, running commands, handling files, and completing real work on your behalf &mdash; all without you touching the keyboard."</div>
+
+<h2>1. Executive Summary</h2>
+<p>Tilux ASM v1.0 (Autonomous System Manager) is a natively developed desktop automation assistant created by Tilux. It is not a chatbot that answers questions and stops there. It is an execution layer for the operating system: the user speaks a goal in ordinary language, and the system translates that goal into concrete actions on the machine, carries them out, and reports back in spoken audio.</p>
+<p>The product is built around a single principle: the user should be able to command their computer the way they command a capable human colleague &mdash; by talking. There is no syntax to memorise, no menu to hunt through, and no need to reach for a mouse or a keyboard. The assistant is designed to run continuously in the background, surface when called, and disappear when dismissed.</p>
+<p>The engine and automation core are proprietary to Tilux. The system is installed locally, operates against the user's own machine, and does not require a cloud dashboard to function.</p>
+
+<h2>2. How the Application Actually Works</h2>
+<p>At a technical level, the application runs as a continuous four-stage pipeline. Every spoken request passes through the same loop.</p>
+
+<h3>Stage 1 &mdash; Voice Capture</h3>
+<p>The floating Voice Awake widget holds the microphone open and streams the user's speech into a real-time speech-to-text engine. This stage is hands-free: there is no push-to-talk button and no wake-word step required once the assistant is live. The captured audio is transcribed into text as the user is still speaking.</p>
+
+<h3>Stage 2 &mdash; Intent Reasoning</h3>
+<p>The transcribed text is sent to the Tilux reasoning core, which interprets what the user is actually trying to achieve. This is the difference between a command parser and an assistant. If the user says "put my music on", the core understands that it must locate a media application, determine which one is installed, and issue a play command &mdash; rather than failing because no literal command named "put my music on" exists.</p>
+<p>The reasoning core also handles ambiguity: it assesses whether the request is fully specified, whether it needs a clarifying question, or whether there is an obvious sensible default it should simply execute.</p>
+
+<h3>Stage 3 &mdash; Action Routing</h3>
+<p>Once an intent is settled, the system selects the fastest and most reliable execution route. It does not blindly click around the screen. It ranks its options in a strict order of preference:</p>
+<ul>
+<li><strong>Native command line and D-Bus interfaces</strong> &mdash; the most reliable and fastest route, used whenever the target application exposes a programmatic interface.</li>
+<li><strong>Application shortcuts and internal search</strong> &mdash; used when a CLI path is unavailable but the app offers a keyboard-driven entry point.</li>
+<li><strong>Simulated mouse and keyboard input</strong> &mdash; used as the fallback for applications that expose no programmatic interface at all, replicating precisely what a human would do.</li>
+</ul>
+<p>This tiered routing is what allows the same assistant to control a modern scriptable application and a stubborn legacy desktop program with equal competence.</p>
+
+<h3>Stage 4 &mdash; Verification and Feedback</h3>
+<p>After acting, the system does not simply assume success. It performs a lightweight perception check &mdash; reading text off the screen and confirming expected state &mdash; then reports the outcome back to the user in spoken audio. If an action fails, it is logged as a failed route so the system does not repeat a dead end in future sessions.</p>
+
+<h2>3. Core Capabilities</h2>
+<table>
+<tr><th style="width:32%">Capability Area</th><th>What It Does</th></tr>
+<tr><td>Application Control</td><td>Launches, focuses, closes, and drives desktop applications. Handles both modern and legacy programs.</td></tr>
+<tr><td>Web and Search</td><td>Opens browsers, runs searches, navigates to pages, and retrieves information directly.</td></tr>
+<tr><td>File and Folder Management</td><td>Creates, moves, renames, organises, and inspects files and directories across the system.</td></tr>
+<tr><td>Messaging</td><td>Composes and sends messages to specified contacts through supported desktop messaging clients.</td></tr>
+<tr><td>Media Playback</td><td>Plays, pauses, skips, and controls media players on request.</td></tr>
+<tr><td>Document and Report Generation</td><td>Produces formatted documents, reports, and output files on demand, then opens them for review.</td></tr>
+<tr><td>System Inspection</td><td>Queries system state, running processes, storage, and configuration.</td></tr>
+<tr><td>Visual Asset Creation</td><td>Generates images and produces transparent-background assets for design and web work.</td></tr>
+<tr><td>Memory</td><td>Retains user preferences, personal facts, and known failed routes across sessions.</td></tr>
+</table>
+
+<h2 class="pb">4. Personality and Communication Model</h2>
+<p>Tilux ASM is not a dry command shell. It speaks. Every response is delivered as real-time spoken audio through the Voice Awake widget, in a configurable tone of voice. The user selects the register that suits them &mdash; Professional, Sassy Gen-Z, Joking, Supportive, Philosophical, Poetic, Robotic, Chaotic, and others &mdash; and the assistant holds that register consistently.</p>
+<p>The assistant understands both standard English and Nigerian Pidgin, and always replies in clear English unless told otherwise. It is deliberately tuned for conversational efficiency: replies are short, direct, and free of visual formatting such as bullet lists or code blocks, because those do not translate into speech.</p>
+<p>It also handles the realities of live voice input. When a microphone clip is garbled or truncated, the assistant says so honestly rather than guessing at a wrong answer &mdash; a small design decision with a large effect on trust.</p>
+
+<h2>5. Task Handling Model</h2>
+<p>Requests are handled in three distinct modes, chosen automatically based on complexity.</p>
+<h3>Mode 1 &mdash; Immediate Execution</h3>
+<p>Simple and multi-step but straightforward tasks are executed immediately, without asking the user to confirm or clarify. The system does not stall on unnecessary questions.</p>
+<h3>Mode 2 &mdash; Conversational Response</h3>
+<p>Questions and general conversation are answered directly and concisely, in voice. The assistant distinguishes between a request to build something and a request to simply discuss something.</p>
+<h3>Mode 3 &mdash; Deep Workspace Reasoning</h3>
+<p>Genuinely heavy engineering work &mdash; building a full application, large-scale code refactoring, extensive code generation &mdash; is escalated out of voice mode and routed into the desktop workspace chatbox, which handles long-form reasoning and multi-step software development. This keeps voice interaction fast while keeping ambitious work possible.</p>
+
+<h2>6. Architecture at a Glance</h2>
+<table>
+<tr><th style="width:32%">Layer</th><th>Responsibility</th></tr>
+<tr><td>Voice Awake Widget</td><td>Floating always-available interface for microphone capture and spoken audio playback.</td></tr>
+<tr><td>Reasoning Core</td><td>Proprietary Tilux engine that interprets intent and plans the action sequence.</td></tr>
+<tr><td>Action Router</td><td>Selects and executes the optimal route: CLI / D-Bus, then shortcut, then mouse and keyboard.</td></tr>
+<tr><td>Perception Layer</td><td>Reads screen state via OCR to verify that actions succeeded before reporting back.</td></tr>
+<tr><td>Memory Store</td><td>Persists user preferences, facts, and failed-route logs between sessions.</td></tr>
+<tr><td>Workspace Chatbox</td><td>Deep reasoning environment for software development and long-form engineering tasks.</td></tr>
+<tr><td>Settings Layer</td><td>Live configuration of tone, voice, speech rate, and administrative credentials.</td></tr>
+</table>
+
+<h2>7. Design Principles</h2>
+<ul>
+<li><strong>Execution over conversation.</strong> The measure of the assistant is work completed, not words produced.</li>
+<li><strong>No unnecessary friction.</strong> If a request can be done, it is done &mdash; not queued behind questions.</li>
+<li><strong>Honesty about failure.</strong> Uncertain inputs are surfaced, not papered over with confident guesses.</li>
+<li><strong>Route efficiency.</strong> The most reliable path is always preferred over the most obvious one.</li>
+<li><strong>Local first.</strong> The system operates on the user's own machine and under the user's own control.</li>
+<li><strong>Graceful dismissal.</strong> The assistant appears when needed and closes instantly on request.</li>
+</ul>
+
+<h2>8. Ownership and Attribution</h2>
+<p>Tilux ASM v1.0 is developed natively by <strong>Tilux</strong> (@Tilux001). The engine and automation core are proprietary to Tilux. The product is designed, built, and maintained as a first-party desktop automation platform rather than an assembly of third-party assistant frameworks.</p>
+
+<h2>9. One-Line Descriptions (For Use)</h2>
+<p><strong>Shortest:</strong> Tilux ASM v1.0 is a voice-driven autonomous assistant that operates your computer for you.</p>
+<p><strong>Product form:</strong> Tilux ASM v1.0 listens to plain spoken English, decides what needs to happen, and then performs it directly on your machine &mdash; opening apps, running commands, managing files, and reporting back out loud.</p>
+<p><strong>Technical form:</strong> Tilux ASM v1.0 is a proprietary desktop automation engine that combines real-time speech recognition, intent reasoning, tiered action routing across CLI and GUI layers, and screen verification into a single hands-free control loop.</p>
+
+<p class="small">Report prepared by Tilux ASM v1.0 &middot; Developed natively by Tilux (@Tilux001) &middot; Engine and automation core proprietary to Tilux.</p>
+
+</body></html>

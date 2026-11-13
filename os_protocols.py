@@ -220,11 +220,14 @@ class WindowsProtocol:
             cmd = "code"
 
         full_cmd = [cmd] + (args or []) if args else cmd
-        if isinstance(full_cmd, list):
-            subprocess.Popen(full_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            subprocess.Popen(f'cmd /c start "" "{full_cmd}"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"status": "success", "os": "Windows", "action": "open_app", "output": f"Launched {app_or_path}"}
+        try:
+            if isinstance(full_cmd, list):
+                subprocess.Popen(full_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.Popen(f'cmd /c start "" "{full_cmd}"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"status": "success", "os": "Windows", "action": "open_app", "output": f"Launched {app_or_path}"}
+        except Exception as e:
+            return {"status": "error", "os": "Windows", "action": "open_app", "output": f"Failed to launch {app_or_path}: {e}"}
 
     @classmethod
     def focus_window(cls, window_title: str) -> dict:
@@ -461,8 +464,11 @@ class MacOSProtocol:
         cmd = ["open", "-a", app_clean]
         if args:
             cmd.extend(["--args"] + args)
-        subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"status": "success", "os": "macOS", "action": "open_app", "output": f"Opened {app_name} on macOS"}
+        try:
+            subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"status": "success", "os": "macOS", "action": "open_app", "output": f"Opened {app_name} on macOS"}
+        except Exception as e:
+            return {"status": "error", "os": "macOS", "action": "open_app", "output": f"Failed to open {app_name}: {e}"}
 
     @classmethod
     def focus_window(cls, app_name: str) -> dict:
@@ -531,7 +537,21 @@ class LinuxProtocol:
 
     @classmethod
     def media_play_pause(cls) -> dict:
-        """Toggles playback via playerctl or D-Bus."""
+        """Toggles playback via playerctl or D-Bus, launching Spotify if no player is active."""
+        # 1. Check if any player is actively responding to playerctl
+        res = subprocess.run("playerctl status 2>/dev/null", shell=True, capture_output=True, text=True)
+        if res.returncode == 0:
+            subprocess.run("playerctl play-pause 2>/dev/null", shell=True)
+            return {"status": "success", "os": "Linux", "action": "play_pause", "output": "Toggled playback via playerctl"}
+        
+        # 2. Check if Spotify is running; if not, launch it
+        check = subprocess.run("pgrep -x spotify", shell=True, capture_output=True)
+        if check.returncode != 0 and shutil.which("spotify"):
+            subprocess.Popen(["spotify"], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+            subprocess.run("playerctl -p spotify play 2>/dev/null", shell=True)
+            return {"status": "success", "os": "Linux", "action": "play_pause", "output": "Launched Spotify and initiated playback"}
+
         cmd = "playerctl play-pause 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause 2>/dev/null"
         subprocess.run(cmd, shell=True, capture_output=True, text=True)
         return {"status": "success", "os": "Linux", "action": "play_pause", "output": "Toggled playback via MPRIS2"}
@@ -642,17 +662,26 @@ class LinuxProtocol:
                         if clean_no_space in fn_clean or fn_clean in clean_no_space:
                             desk_path = os.path.join(d, f)
                             desk_id = f.replace(".desktop", "")
-                            if shutil.which("gtk-launch"):
-                                subprocess.Popen(["gtk-launch", desk_id], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            elif shutil.which("gio"):
-                                subprocess.Popen(["gio", "launch", desk_path], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            else:
-                                subprocess.Popen(["xdg-open", desk_path], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Launched {app_name}"}
+                            try:
+                                if shutil.which("gtk-launch"):
+                                    subprocess.Popen(["gtk-launch", desk_id], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                elif shutil.which("gio"):
+                                    subprocess.Popen(["gio", "launch", desk_path], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                else:
+                                    subprocess.Popen(["xdg-open", desk_path], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Launched {app_name}"}
+                            except Exception as e:
+                                return {"status": "error", "os": "Linux", "action": "open_app", "output": f"Error launching {app_name}: {e}"}
 
-        full_cmd = [app_clean] + (args or [])
-        subprocess.Popen(full_cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Launched {app_name}"}
+        if shutil.which(app_clean):
+            try:
+                full_cmd = [app_clean] + (args or [])
+                subprocess.Popen(full_cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Launched {app_name}"}
+            except Exception as e:
+                return {"status": "error", "os": "Linux", "action": "open_app", "output": f"Error launching {app_name}: {e}"}
+
+        return {"status": "error", "os": "Linux", "action": "open_app", "output": f"Application '{app_name}' not found on system."}
 
     @classmethod
     def focus_window(cls, title_substring: str) -> dict:
@@ -750,7 +779,10 @@ class OSProtocols:
 
     @classmethod
     def open_app(cls, app_name: str, args: list = None) -> dict:
-        return cls.get_handler().open_app(app_name, args)
+        try:
+            return cls.get_handler().open_app(app_name, args)
+        except Exception as e:
+            return {"status": "error", "action": "open_app", "output": f"Error opening '{app_name}': {e}"}
 
     @classmethod
     def focus_window(cls, title: str) -> dict:

@@ -132,77 +132,19 @@
         #sub-text {
             font-size: 13px;
             font-weight: 400;
-            letter-spacing: 0.3px;
-            color: #d1d5db;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+            font-style: italic;
+            letter-spacing: 0.2px;
+            color: #9ca3af;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.7);
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
-            opacity: 0.9;
+            opacity: 0.95;
             min-height: 18px;
             padding: 0 4px;
+            margin-top: 2px;
             transition: color 0.15s ease;
-        }
-
-        .badge-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 2px 0 5px 0;
-            max-width: 96%;
-            transition: all 0.2s ease;
-        }
-
-        .action-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 3px 12px;
-            border-radius: 9999px;
-            font-size: 11.5px;
-            font-weight: 500;
-            font-family: 'Outfit', monospace;
-            backdrop-filter: blur(12px);
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            transition: all 0.25s ease;
-        }
-
-        .action-badge.thinking {
-            background: rgba(139, 92, 246, 0.16);
-            border: 1px solid rgba(192, 132, 252, 0.45);
-            color: #d8b4fe;
-            box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
-            animation: pulse-glow 1.5s infinite alternate ease-in-out;
-        }
-
-        .action-badge.command {
-            background: rgba(14, 165, 233, 0.2);
-            border: 1px solid rgba(56, 189, 248, 0.55);
-            color: #38bdf8;
-            box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
-            animation: pulse-glow 1.0s infinite alternate ease-in-out;
-        }
-
-        .action-badge.success {
-            background: rgba(16, 185, 129, 0.16);
-            border: 1px solid rgba(52, 211, 153, 0.45);
-            color: #34d399;
-            box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
-        }
-
-        .action-badge.speaking {
-            background: rgba(192, 132, 252, 0.16);
-            border: 1px solid rgba(192, 132, 252, 0.45);
-            color: #f3e8ff;
-        }
-
-        @keyframes pulse-glow {
-            0% { opacity: 0.85; transform: scale(0.99); }
-            100% { opacity: 1; transform: scale(1.01); }
         }
     </style>
 </head>
@@ -216,12 +158,6 @@
     
     <div class="text-container">
         <div id="main-text"></div>
-        <div id="badge-container" class="badge-container" style="display: none;">
-            <div id="action-badge" class="action-badge">
-                <span id="badge-icon" class="badge-icon">⚡</span>
-                <span id="badge-text" class="badge-text"></span>
-            </div>
-        </div>
         <div id="sub-text"></div>
     </div>
     
@@ -369,6 +305,7 @@
                 const res = await fetch('http://127.0.0.1:8932/api/widget_state');
                 const data = await res.json();
                 const mainEl = document.getElementById('main-text');
+                const subEl = document.getElementById('sub-text');
 
                 if (!data.main_text && !data.sub_text && !data.is_speaking) {
                     emptyStateCount++;
@@ -380,32 +317,27 @@
                     emptyStateCount = 0;
                 }
 
-                // 1. If server sent speech request with speak_id
-                if (data.speak_text && data.speak_id && data.speak_id !== lastSpokenId) {
-                    speakWithBrowserSync(data.speak_text, data.speak_id);
-                } else if (data.reply_text && data.speak_id && data.speak_id !== lastSpokenId) {
-                    lastSpokenId = data.speak_id;
-                    const orb = document.getElementById('orb');
-                    if (orb) orb.style.animationDuration = "0.7s";
-                    setTimeout(() => {
-                        if (orb) orb.style.animationDuration = "2s";
-                    }, 2500);
+                // 1. Only speak if server is actively in the Speaking state with a valid speak_id
+                if ((data.is_speaking || data.main_text === "Speaking...") && data.speak_id && data.speak_id !== lastSpokenId) {
+                    if (data.speak_text) {
+                        speakWithBrowserSync(data.speak_text, data.speak_id);
+                    } else if (data.reply_text) {
+                        lastSpokenId = data.speak_id;
+                        const orb = document.getElementById('orb');
+                        if (orb) orb.style.animationDuration = "0.7s";
+                        setTimeout(() => {
+                            if (orb) orb.style.animationDuration = "2s";
+                        }, 2500);
+                    }
+                } else if (!data.is_speaking && data.main_text !== "Speaking..." && hasSpeech && window.speechSynthesis.speaking) {
+                    // Instantly cancel any lingering speech when assistant is thinking or listening
+                    try {
+                        window.speechSynthesis.cancel();
+                    } catch(e) {}
                 }
 
-                const badgeContainer = document.getElementById('badge-container');
-                const badgeEl = document.getElementById('action-badge');
-                const badgeIcon = document.getElementById('badge-icon');
-                const badgeText = document.getElementById('badge-text');
-
-                // Determine active badge state based on live server data
-                const cmd = (data.command_text || "").trim();
-                const th = (data.thought_text || "").trim();
-                const sub = (data.sub_text || "").trim();
-                const sLower = sub.toLowerCase();
-
-                // 2. Text & Badge rendering:
+                // 2. Text rendering: plain slant (italic) with no badges, pills, or emojis
                 if (data.is_speaking || data.main_text === "Speaking...") {
-                    if (badgeContainer) badgeContainer.style.display = "none";
                     if (mainEl && mainEl.innerText !== "Speaking...") {
                         mainEl.innerText = "Speaking...";
                     }
@@ -414,7 +346,6 @@
                         subEl.style.color = "#c084fc";
                     }
                 } else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
-                    if (badgeContainer) badgeContainer.style.display = "none";
                     if (mainEl && mainEl.innerText !== data.main_text) {
                         mainEl.innerText = data.main_text;
                     }
@@ -428,59 +359,58 @@
                         mainEl.innerText = fullMainText;
                     }
 
-                    // Dynamic Live Badge Update: shows real reason and executed commands
-                    if (badgeContainer && badgeEl && badgeIcon && badgeText) {
-                        if (sLower.startsWith("running:") || sLower.startsWith("bash:") || sLower.startsWith("automating")) {
-                            badgeContainer.style.display = "flex";
-                            badgeEl.className = "action-badge command";
-                            badgeIcon.innerText = "⚡";
-                            const cleanCmd = sub.replace(/^running:\s*/i, '').replace(/^bash:\s*/i, '');
-                            badgeText.innerText = cleanCmd || cmd || "Executing command...";
-                            if (subEl) {
-                                subEl.innerText = "Executing action on desktop...";
-                                subEl.style.color = "#38bdf8";
+                    if (subEl) {
+                        const sub = (data.sub_text || "").trim();
+                        const th = (data.thought_text || "").trim();
+                        const cmd = (data.command_text || "").trim();
+                        const mainLower = (data.main_text || "").trim().toLowerCase();
+
+                        // Clean process status: NEVER echo rules, restrictions, or user's question
+                        function sanitizeProcess(text) {
+                            if (!text) return "";
+                            let t = text.trim();
+                            const tLower = t.toLowerCase();
+
+                            // Filter out any meta rule / policy / instruction references
+                            if (/\b(?:rule|rules|instruction|prompt|guardrail|policy|guideline|reveal|forbidden|disclose|architecture|mechanic|deepseek|gemini|openai|claude|llm|token)\b/i.test(tLower)) {
+                                return "Thinking...";
                             }
-                        } else if (sLower.startsWith("ran:") || sLower.startsWith("done:") || sLower.includes("completed")) {
-                            badgeContainer.style.display = "flex";
-                            badgeEl.className = "action-badge success";
-                            badgeIcon.innerText = "✓";
-                            badgeText.innerText = sub;
-                            if (subEl) {
-                                subEl.innerText = "Command finished, preparing reply...";
-                                subEl.style.color = "#34d399";
+
+                            if (tLower.startsWith("analyzing")) return "Thinking...";
+                            if (t.startsWith("Running: ") || t.startsWith("Ran: ")) return "Executing action...";
+
+                            // Check if text echoes the user's question or command
+                            if (mainLower) {
+                                const cleanMain = mainLower.replace(/[^a-z0-9\s]/g, '').trim();
+                                const cleanT = t.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                                if (cleanMain.length > 2 && (cleanT.includes(cleanMain) || cleanMain.includes(cleanT))) {
+                                    return "Thinking...";
+                                }
+                                const words = cleanMain.split(/\s+/).filter(w => w.length > 3);
+                                let overlap = 0;
+                                for (const w of words) {
+                                    if (cleanT.includes(w)) overlap++;
+                                }
+                                if (words.length > 0 && overlap >= Math.min(2, words.length)) {
+                                    return "Thinking...";
+                                }
                             }
-                        } else if (sLower.startsWith("planning:")) {
-                            badgeContainer.style.display = "flex";
-                            badgeEl.className = "action-badge command";
-                            badgeIcon.innerText = "⚙️";
-                            badgeText.innerText = sub;
-                            if (subEl) {
-                                subEl.innerText = "Planning automated action...";
-                                subEl.style.color = "#38bdf8";
-                            }
-                        } else if (sLower.startsWith("thinking:") || th || sLower.includes("analyzing")) {
-                            badgeContainer.style.display = "flex";
-                            badgeEl.className = "action-badge thinking";
-                            badgeIcon.innerText = "🧠";
-                            const thinkContent = sub.replace(/^thinking:\s*/i, '') || th || "Formulating plan...";
-                            badgeText.innerText = thinkContent;
-                            if (subEl) {
-                                subEl.innerText = thinkContent;
-                                subEl.style.color = "#c084fc";
-                            }
-                        } else if (sub) {
-                            badgeContainer.style.display = "flex";
-                            badgeEl.className = "action-badge thinking";
-                            badgeIcon.innerText = "⚡";
-                            badgeText.innerText = sub;
-                            if (subEl) {
-                                subEl.innerText = sub;
-                                subEl.style.color = "#d1d5db";
-                            }
-                        } else {
-                            badgeContainer.style.display = "none";
-                            if (subEl) subEl.innerText = "";
+                            return t;
                         }
+
+                        let processText = "Thinking...";
+                        if (cmd) {
+                            processText = "Executing action...";
+                        } else if (sub && sub !== "Thinking...") {
+                            const cleanSub = sanitizeProcess(sub);
+                            processText = cleanSub || "Thinking...";
+                        } else if (th) {
+                            const cleanTh = sanitizeProcess(th);
+                            processText = cleanTh ? `Thinking: ${cleanTh}` : "Thinking...";
+                        }
+
+                        subEl.innerText = processText;
+                        subEl.style.color = "#9ca3af";
                     }
                 }
 

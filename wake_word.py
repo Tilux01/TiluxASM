@@ -102,6 +102,9 @@ class WakeWordEngine:
             "it looks",
             "tie looks",
             "he looks",
+            "haiti looks",
+            "haiti locks",
+            "tie locks"
             "they tell looks", "they tell us",
             "tea locks", "tee locks", "tie locks",
             "tea looks", "tee looks", "tie looks",
@@ -122,11 +125,15 @@ class WakeWordEngine:
         m = WAKE_REGEX.search(clean)
         if m:
             trailing = clean[m.end():].strip(" ,.:;-")
+            if not any(c.isalnum() for c in trailing):
+                trailing = ""
             return True, trailing
         for kw in self.active_keywords:
             if kw in clean:
                 idx = clean.find(kw)
                 trailing = clean[idx + len(kw):].strip(" ,.:;-")
+                if not any(c.isalnum() for c in trailing):
+                    trailing = ""
                 return True, trailing
         return False, ""
 

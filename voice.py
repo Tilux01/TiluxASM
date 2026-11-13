@@ -1,3 +1,4 @@
+import sys
 import subprocess
 import os
 from ctypes import *
@@ -101,8 +102,12 @@ def resolve_piper_path(voice: str) -> str:
 
 def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
     try:
-        from main import load_settings
-        settings = load_settings()
+        import json
+        if os.path.exists("settings.json"):
+            with open("settings.json", "r") as f:
+                settings = json.load(f)
+        else:
+            settings = {}
         tts_engine = settings.get("tts_engine", "piper")
     except:
         tts_engine = "piper"
@@ -586,10 +591,11 @@ def get_whisper_model():
     return _whisper_model
 
 def init_voice_models():
-    """Preloads Whisper and Piper into RAM in background so first wake word is instant."""
+    """Preloads Whisper, Piper, and warms up Groq client into RAM in background so first wake word is instant."""
     import threading
     def _loader():
         try:
+            get_groq_client()
             get_whisper_model()
             settings = get_voice_settings()
             tts_voice = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
@@ -660,6 +666,8 @@ def transcribe_groq_whisper(audio_np, sample_rate: int = 16000) -> str:
             return text
     except Exception as e:
         print(f"[Voice] Groq Whisper error: {e}")
+    return ""
+
 def _filter_echo(text: str) -> str:
     """Verifies that recognized text is NOT an acoustic echo of the assistant's own recent speech."""
     if not text:
@@ -692,13 +700,16 @@ def listen(on_recording_done=None) -> str:
         return ""
 
     import time
-    # 1. Acoustic Self-Hearing Guard: Wait if TTS audio is still actively playing on speakers
+    # 1. Acoustic Self-Hearing Guard: Wait only if TTS audio is actively playing on speakers
     t_wait_start = time.time()
+    waited_for_tts = False
     while is_speech_active() and (time.time() - t_wait_start) < 2.5:
-        time.sleep(0.05)
+        waited_for_tts = True
+        time.sleep(0.04)
 
-    # 2. Acoustic Decay & Room Reverb Settle Time (prevents trailing speaker syllables from leaking into mic)
-    time.sleep(0.25)
+    # 2. Reverb Settle Time: only needed if TTS was just outputting sound to speakers
+    if waited_for_tts:
+        time.sleep(0.10)
         
     sample_rate = 16000
     print("[Voice] Listening for user speech...")
@@ -708,37 +719,35 @@ def listen(on_recording_done=None) -> str:
     import numpy as np
     import sounddevice as sd
     
-    SILENCE_DURATION = 0.70     # Seconds of trailing silence to finalize recording (fast speech discovery)
-    MAX_DURATION = 60.0         # Max seconds of total recording (supports long dictations)
-    INITIAL_TIMEOUT = 25.0      # Stays awake 20-30s if user is not speaking before auto-closing
+    SILENCE_DURATION = 0.45     # Seconds of trailing silence to finalize recording (~450ms for snappy turn-taking)
+    MAX_RECORD_DURATION = 15.0  # Max seconds for a single voice utterance (avoids giant audio buffers)
+    INITIAL_TIMEOUT = 25.0      # Stays awake 25s if user hasn't started speaking before auto-closing
+    POST_SPEECH_TIMEOUT = 1.0   # Forceful cutoff 1.0s after user stops speaking even if room has ambient hum
     
     frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
     chunk_sec = 0.10
     
     max_silence_chunks = int(SILENCE_DURATION / chunk_sec)
-    max_chunks = int(MAX_DURATION / chunk_sec)
+    max_chunks = int(MAX_RECORD_DURATION / chunk_sec)
     initial_timeout_chunks = int(INITIAL_TIMEOUT / chunk_sec)
-    min_speech_chunks = int(0.30 / chunk_sec)
+    min_speech_chunks = int(0.20 / chunk_sec)
     
     silence_chunks_count = 0
     speech_chunks_count = 0
     has_spoken = False
+    last_speech_time = None
+    peak_speech_rms = 0.001
     
     # Dynamic Adaptive VAD: calibrate against actual room/mic noise floor
     ambient_samples = []
-    dynamic_speech_threshold = 0.030
-    dynamic_silence_threshold = 0.018
+    ambient_floor = 0.012
+    dynamic_speech_threshold = 0.026
+    dynamic_silence_threshold = 0.016
     is_calibrated = False
     
     try:
         with noalsaerr():
             with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
-                # 3. Pre-roll Buffer Drain: Discard initial 2 chunks (~0.2s) to flush any hardware ring buffer latency
-                for _ in range(2):
-                    try:
-                        stream.read(frames_per_chunk)
-                    except Exception:
-                        pass
 
                 for chunk_idx in range(max_chunks):
                     chunk, overflowed = stream.read(frames_per_chunk)
@@ -754,39 +763,64 @@ def listen(on_recording_done=None) -> str:
                             return ""
                     
                     rms = float(np.sqrt(np.mean(chunk**2)))
+                    now = time.time()
                     
-                    # 1. Calibrate baseline from first 2-3 ambient chunks
+                    # 1. Calibrate baseline from first 3 ambient chunks
                     if not is_calibrated:
                         ambient_samples.append(rms)
-                        if len(ambient_samples) >= 2:
+                        if len(ambient_samples) >= 3:
                             ambient_floor = float(np.median(ambient_samples))
-                            dynamic_speech_threshold = max(0.025, (ambient_floor * 1.35) + 0.008)
-                            dynamic_silence_threshold = max(0.015, (ambient_floor * 1.15) + 0.003)
+                            dynamic_speech_threshold = max(0.024, (ambient_floor * 1.35) + 0.008)
+                            dynamic_silence_threshold = max(0.016, (ambient_floor * 1.15) + 0.004)
                             is_calibrated = True
                     
-                    # 2. Track speech start
-                    if rms >= dynamic_speech_threshold:
-                        has_spoken = True
-                        speech_chunks_count += 1
-                        silence_chunks_count = 0
-                    elif has_spoken:
-                        # 3. Track silence cutoff once user stops talking
-                        if rms <= dynamic_silence_threshold:
-                            silence_chunks_count += 1
+                    # 2. Track speech detection
+                    if not has_spoken:
+                        if rms >= dynamic_speech_threshold:
+                            has_spoken = True
+                            speech_chunks_count = 1
+                            silence_chunks_count = 0
+                            last_speech_time = now
+                            peak_speech_rms = rms
                         else:
-                            silence_chunks_count = max(0, silence_chunks_count - 1)
+                            # Adaptively track rising background noise (e.g. laptop fan spinning up)
+                            if rms < 0.035:
+                                ambient_floor = (0.90 * ambient_floor) + (0.10 * rms)
+                                dynamic_speech_threshold = max(0.024, (ambient_floor * 1.35) + 0.008)
+                                dynamic_silence_threshold = max(0.016, (ambient_floor * 1.15) + 0.004)
+                    else:
+                        peak_speech_rms = max(peak_speech_rms, rms)
+                        # A chunk is considered active speech if it exceeds dynamic threshold or is within speech dynamic range
+                        is_speech = (rms >= dynamic_silence_threshold and rms >= (peak_speech_rms * 0.40)) or (rms >= dynamic_speech_threshold)
+                        if is_speech:
+                            speech_chunks_count += 1
+                            silence_chunks_count = 0
+                            last_speech_time = now
+                        else:
+                            silence_chunks_count += 1
                             
-                    # 4. Cutoff only after sustained silence AND sufficient speech duration
-                    if has_spoken and speech_chunks_count >= min_speech_chunks and silence_chunks_count >= max_silence_chunks:
-                        print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing speech.")
-                        if on_recording_done:
-                            try:
-                                on_recording_done()
-                            except Exception:
-                                pass
-                        break
+                    # 3. Cutoff when speech is complete
+                    if has_spoken and speech_chunks_count >= min_speech_chunks:
+                        # Case A: Sustained silence detected
+                        if silence_chunks_count >= max_silence_chunks:
+                            print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing speech.")
+                            if on_recording_done:
+                                try:
+                                    on_recording_done()
+                                except Exception:
+                                    pass
+                            break
+                        # Case B: Post-speech safety timer (prevents hanging when mic has persistent hum/fan noise)
+                        if last_speech_time and (now - last_speech_time) >= POST_SPEECH_TIMEOUT:
+                            print(f"[Voice] Speech ended (post-speech safety cutoff after {chunk_idx * chunk_sec:.2f}s). Processing speech.")
+                            if on_recording_done:
+                                try:
+                                    on_recording_done()
+                                except Exception:
+                                    pass
+                            break
                         
-                    # 5. Timeout if user triggered wake word but never spoke
+                    # 4. Timeout if user triggered wake word but never spoke
                     if not has_spoken and chunk_idx >= initial_timeout_chunks:
                         print(f"[Voice] Initial timeout: No speech detected within {INITIAL_TIMEOUT:.0f}s.")
                         return ""
