@@ -782,10 +782,21 @@ def listen(on_recording_done=None) -> str:
     
     # Dynamic Adaptive VAD: calibrate against actual room/mic noise floor
     ambient_samples = []
-    ambient_floor = 0.012
-    dynamic_speech_threshold = 0.026
-    dynamic_silence_threshold = 0.016
+    ambient_floor = 0.015
+    dynamic_speech_threshold = 0.038
+    dynamic_silence_threshold = 0.020
     is_calibrated = False
+
+    # Low-Frequency Hum Filter: 160Hz 2nd-order Butterworth high-pass filter
+    # Eliminates continuous low-frequency hums ("huhhhhhhh" sound from fans, AC, blowers, room resonance)
+    sos = None
+    zi = None
+    try:
+        import scipy.signal as signal
+        sos = signal.butter(2, 160.0 / (sample_rate / 2.0), btype='high', output='sos')
+        zi = signal.sosfilt_zi(sos)
+    except Exception:
+        pass
     
     try:
         with noalsaerr():
@@ -800,7 +811,17 @@ def listen(on_recording_done=None) -> str:
                 for chunk_idx in range(max_chunks):
                     chunk, overflowed = stream.read(frames_per_chunk)
                     chunk = np.squeeze(chunk)
-                    audio_buffer.append(chunk)
+
+                    # Apply 160Hz high-pass filter to strip low-frequency hum/rumble
+                    if sos is not None and zi is not None:
+                        try:
+                            clean_chunk, zi = signal.sosfilt(sos, chunk, zi=zi)
+                        except Exception:
+                            clean_chunk = chunk
+                    else:
+                        clean_chunk = chunk
+
+                    audio_buffer.append(clean_chunk)
                     
                     # Immediately exit if user closed popup or aborted
                     import sys
@@ -810,7 +831,7 @@ def listen(on_recording_done=None) -> str:
                             print("[Voice] Recording aborted by user / widget closed.")
                             return ""
                     
-                    rms = float(np.sqrt(np.mean(chunk**2)))
+                    rms = float(np.sqrt(np.mean(clean_chunk**2)))
                     now = time.time()
                     
                     # 1. Calibrate baseline from first 3 ambient chunks
@@ -818,8 +839,8 @@ def listen(on_recording_done=None) -> str:
                         ambient_samples.append(rms)
                         if len(ambient_samples) >= 3:
                             ambient_floor = float(np.median(ambient_samples))
-                            dynamic_speech_threshold = max(0.024, (ambient_floor * 1.35) + 0.008)
-                            dynamic_silence_threshold = max(0.016, (ambient_floor * 1.15) + 0.004)
+                            dynamic_speech_threshold = max(0.038, (ambient_floor * 2.2) + 0.012)
+                            dynamic_silence_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
                             is_calibrated = True
                     
                     # 2. Track speech detection
@@ -831,11 +852,10 @@ def listen(on_recording_done=None) -> str:
                             last_speech_time = now
                             peak_speech_rms = rms
                         else:
-                            # Adaptively track rising background noise (e.g. laptop fan spinning up)
-                            if rms < 0.035:
-                                ambient_floor = (0.90 * ambient_floor) + (0.10 * rms)
-                                dynamic_speech_threshold = max(0.024, (ambient_floor * 1.35) + 0.008)
-                                dynamic_silence_threshold = max(0.016, (ambient_floor * 1.15) + 0.004)
+                            # Adaptively track rising background noise (e.g. laptop fan/AC hum)
+                            ambient_floor = (0.90 * ambient_floor) + (0.10 * rms)
+                            dynamic_speech_threshold = max(0.038, (ambient_floor * 2.2) + 0.012)
+                            dynamic_silence_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
                     else:
                         peak_speech_rms = max(peak_speech_rms, rms)
                         # A chunk is considered active speech if it exceeds dynamic threshold or is within speech dynamic range
@@ -931,14 +951,26 @@ def listen(on_recording_done=None) -> str:
 
         # 3. Resilient Offline Fallback (Faster-Whisper on-device CPU)
         print("[Voice] Faster-Whisper transcribing speech...")
-        segments, info = model.transcribe(
-            audio_np, 
-            beam_size=1, 
-            best_of=1, 
-            condition_on_previous_text=False, 
-            language="en"
-        )
-        text = " ".join([segment.text for segment in segments]).strip()
+        try:
+            segments, info = model.transcribe(
+                audio_np, 
+                beam_size=1, 
+                best_of=1, 
+                condition_on_previous_text=False, 
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=450),
+                language="en"
+            )
+            text = " ".join([segment.text for segment in segments]).strip()
+        except Exception:
+            segments, info = model.transcribe(
+                audio_np, 
+                beam_size=1, 
+                best_of=1, 
+                condition_on_previous_text=False, 
+                language="en"
+            )
+            text = " ".join([segment.text for segment in segments]).strip()
         if text in GENERIC_HALLUCINATIONS:
             return ""
         print(f"[Voice] Faster-whisper transcript: '{text}'")
