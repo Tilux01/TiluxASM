@@ -9,14 +9,14 @@ def run_file_task(data: dict) -> dict:
     path = data.get("path", "")
     
     if action == "open_code":
-        cmd = f"code '{path}' & disown"
+        cmd = f'code "{path}"'
     else:
         if os_type == "Linux":
             cmd = f"xdg-open '{path}' & disown"
         elif os_type == "Darwin": # macOS
             cmd = f"open '{path}'"
         else: # Windows
-            cmd = f"cmd /c start '' '{path}'"
+            cmd = f'cmd /c start "" "{path}"'
 
     res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     return {"status": "success", "action": action, "path": path}

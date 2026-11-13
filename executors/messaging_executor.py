@@ -4,7 +4,9 @@ import time
 import os
 import subprocess
 
-FAILURE_LOG = "failure_log.json"
+import tempfile
+LOG_DIR = os.environ.get("TILUX_USER_DATA_DIR") or tempfile.gettempdir()
+FAILURE_LOG = os.path.join(LOG_DIR, "failure_log.json")
 
 def log_failure(step: str, error: str, context: dict):
     entry = {

@@ -472,22 +472,51 @@ def smart_action_router(app_name: str, action: str, payload: str = "") -> str:
     app_lower = app_name.lower().strip()
     action_lower = action.lower().strip()
     
-    # Tier 1: Spotify via playerctl or D-Bus
+    # Tier 1: Spotify via native OS mechanisms (Windows URI, macOS AppleScript, Linux D-Bus)
     if "spotify" in app_lower:
-        if payload and action_lower in ["play", "search", "open"]:
-            import urllib.parse
-            encoded_payload = urllib.parse.quote(payload)
-            cmd_res = execute_bash_command(f"dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.OpenUri string:'spotify:search:{encoded_payload}' 2>/dev/null || xdg-open 'spotify:search:{encoded_payload}' & disown")
-            return f"Executed Spotify search for '{payload}' via D-Bus OpenUri: {cmd_res}"
-        elif action_lower in ["play", "pause", "playpause", "toggle"]:
-            cmd_res = execute_bash_command("playerctl -p spotify play-pause 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause")
-            return f"Executed Spotify toggle via D-Bus: {cmd_res}"
-        elif action_lower in ["next", "skip"]:
-            cmd_res = execute_bash_command("playerctl -p spotify next 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Next")
-            return f"Executed Spotify next via D-Bus: {cmd_res}"
-        elif action_lower in ["prev", "previous"]:
-            cmd_res = execute_bash_command("playerctl -p spotify previous 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Previous")
-            return f"Executed Spotify previous via D-Bus: {cmd_res}"
+        import platform
+        curr_os = platform.system()
+        if curr_os == "Windows":
+            if payload and action_lower in ["play", "search", "open"]:
+                import urllib.parse
+                encoded_payload = urllib.parse.quote(payload)
+                ps_cmd = f'Start-Process "spotify:search:{encoded_payload}"; Start-Sleep -Milliseconds 850; (New-Object -ComObject wscript.shell).SendKeys("{{ENTER}}")'
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=10)
+                return f"Playing '{payload}' on Spotify via Windows native protocol."
+            elif action_lower in ["next", "skip"]:
+                subprocess.run(["powershell", "-NoProfile", "-Command", "(New-Object -ComObject wscript.shell).SendKeys([char]176)"], capture_output=True, text=True, timeout=5)
+                return "Skipped Spotify track via Windows media control."
+            elif action_lower in ["prev", "previous"]:
+                subprocess.run(["powershell", "-NoProfile", "-Command", "(New-Object -ComObject wscript.shell).SendKeys([char]177)"], capture_output=True, text=True, timeout=5)
+                return "Returned to previous Spotify track via Windows media control."
+            else:
+                subprocess.run(["powershell", "-NoProfile", "-Command", "(New-Object -ComObject wscript.shell).SendKeys([char]179)"], capture_output=True, text=True, timeout=5)
+                return "Toggled Spotify playback via Windows media control."
+        elif curr_os == "Darwin":
+            if action_lower in ["next", "skip"]:
+                execute_bash_command('osascript -e \'tell application "Spotify" to next track\'')
+            elif action_lower in ["prev", "previous"]:
+                execute_bash_command('osascript -e \'tell application "Spotify" to previous track\'')
+            elif payload and action_lower in ["play", "search", "open"]:
+                execute_bash_command(f'open "spotify:search:{payload}"')
+            else:
+                execute_bash_command('osascript -e \'tell application "Spotify" to playpause\'')
+            return f"Executed Spotify action '{action}' on macOS."
+        else: # Linux
+            if payload and action_lower in ["play", "search", "open"]:
+                import urllib.parse
+                encoded_payload = urllib.parse.quote(payload)
+                cmd_res = execute_bash_command(f"dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.OpenUri string:'spotify:search:{encoded_payload}' 2>/dev/null || xdg-open 'spotify:search:{encoded_payload}' & disown")
+                return f"Executed Spotify search for '{payload}' via D-Bus OpenUri: {cmd_res}"
+            elif action_lower in ["play", "pause", "playpause", "toggle"]:
+                cmd_res = execute_bash_command("playerctl -p spotify play-pause 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause")
+                return f"Executed Spotify toggle via D-Bus: {cmd_res}"
+            elif action_lower in ["next", "skip"]:
+                cmd_res = execute_bash_command("playerctl -p spotify next 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Next")
+                return f"Executed Spotify next via D-Bus: {cmd_res}"
+            elif action_lower in ["prev", "previous"]:
+                cmd_res = execute_bash_command("playerctl -p spotify previous 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Previous")
+                return f"Executed Spotify previous via D-Bus: {cmd_res}"
 
     # Tier 1: VS Code / Code editor via CLI
     if "code" in app_lower or "vscode" in app_lower:

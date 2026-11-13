@@ -519,9 +519,9 @@ def listen(on_recording_done=None) -> str:
     import numpy as np
     import sounddevice as sd
     
-    SILENCE_DURATION = 0.40     # Seconds of trailing silence to finalize recording
-    MAX_DURATION = 10.0         # Max seconds of total recording
-    INITIAL_TIMEOUT = 5.0       # Max seconds to wait for speech to begin
+    SILENCE_DURATION = 1.60     # Seconds of trailing silence to finalize recording (relaxed for natural pauses/breaths)
+    MAX_DURATION = 60.0         # Max seconds of total recording (supports long dictations)
+    INITIAL_TIMEOUT = 10.0      # Max seconds to wait for speech to begin
     
     frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
     chunk_sec = 0.10
@@ -529,8 +529,10 @@ def listen(on_recording_done=None) -> str:
     max_silence_chunks = int(SILENCE_DURATION / chunk_sec)
     max_chunks = int(MAX_DURATION / chunk_sec)
     initial_timeout_chunks = int(INITIAL_TIMEOUT / chunk_sec)
+    min_speech_chunks = int(0.50 / chunk_sec)
     
     silence_chunks_count = 0
+    speech_chunks_count = 0
     has_spoken = False
     
     # Dynamic Adaptive VAD: calibrate against actual room/mic noise floor
@@ -569,6 +571,7 @@ def listen(on_recording_done=None) -> str:
                     # 2. Track speech start
                     if rms >= dynamic_speech_threshold:
                         has_spoken = True
+                        speech_chunks_count += 1
                         silence_chunks_count = 0
                     elif has_spoken:
                         # 3. Track silence cutoff once user stops talking
@@ -577,9 +580,9 @@ def listen(on_recording_done=None) -> str:
                         else:
                             silence_chunks_count = max(0, silence_chunks_count - 1)
                             
-                    # 4. Immediate cutoff as soon as trailing silence is reached
-                    if has_spoken and silence_chunks_count >= max_silence_chunks:
-                        print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing instantly.")
+                    # 4. Cutoff only after sustained silence AND sufficient speech duration
+                    if has_spoken and speech_chunks_count >= min_speech_chunks and silence_chunks_count >= max_silence_chunks:
+                        print(f"[Voice] Speech ended (silence cutoff after {chunk_idx * chunk_sec:.2f}s). Processing speech.")
                         if on_recording_done:
                             try:
                                 on_recording_done()
@@ -589,7 +592,7 @@ def listen(on_recording_done=None) -> str:
                         
                     # 5. Timeout if user triggered wake word but never spoke
                     if not has_spoken and chunk_idx >= initial_timeout_chunks:
-                        print("[Voice] Initial timeout: No speech detected within 5s.")
+                        print(f"[Voice] Initial timeout: No speech detected within {INITIAL_TIMEOUT:.0f}s.")
                         return ""
                         
         if not has_spoken or not audio_buffer:

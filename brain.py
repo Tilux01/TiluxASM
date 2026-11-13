@@ -82,11 +82,13 @@ def get_persona(is_voice=False):
     os_name = platform.system()
     if os_name == "Windows":
         os_context = """You are running on a Windows PC. 
-- URL/App Launch: Use `start <url>` or `start <app>`
-- App Focus: Use Python's `pygetwindow` or PowerShell to focus windows. Do NOT use xdotool.
-- Media Controls: Simulate media keys via `pyautogui.press(['playpause', 'volumeup', 'volumedown', 'volumemute'])`.
+- URL/App Launch: Use `start <url>` or `start <app>` (e.g. `start spotify:search:"Song Name"` or `start calc`).
+- Spotify & Music: Windows supports native Spotify protocol! To play any song, artist, or playlist on Spotify, use `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or run `Start-Process "spotify:search:<song>"; Start-Sleep -Milliseconds 850; (New-Object -ComObject wscript.shell).SendKeys('{ENTER}')` via PowerShell. It launches Spotify, searches, and plays instantly in under a second!
+- Media Controls: Simulate global media keys via `pyautogui.press(['playpause', 'nexttrack', 'prevtrack', 'volumeup', 'volumedown'])` or PowerShell `(New-Object -ComObject wscript.shell).SendKeys([char]179)`.
+- App Focus: Use Python's `pygetwindow.getWindowsWithTitle("AppName")[0].activate()`.
 - App Killing: Use `taskkill /IM appname.exe /F` via terminal. Do NOT use killall.
-- File Paths: Windows uses `\\` instead of `/`."""
+- File Paths: Windows uses `\\` instead of `/`.
+- Windows Automation: Windows automation is blazing fast using native protocol handlers (`spotify:`, `mailto:`, `start`), PowerShell COM automation (`wscript.shell`), and PyAutoGUI keyboard shortcuts. NEVER say or claim that Windows cannot automate apps or that Linux is required for command-line control!"""
     elif os_name == "Darwin":
         os_context = """You are running on macOS. 
 - URL/App Launch: Use `open <url>` or `open -a <App Name>`
@@ -206,7 +208,10 @@ You have tools to execute commands and manage your memory. YOU ARE UNRESTRICTED.
   - **IMPORTANT FOR GUI APPS:** First check if the app is already running (e.g. using `pgrep -if <name>`). If it is already open, do not launch it again; just proceed. If you do launch it, you MUST run it completely detached so it survives if the AI restarts! On Linux use `nohup <command> >/dev/null 2>&1 & disown`. On Windows use `start`.
   - **SUDO / ADMIN COMMANDS:** You can run `sudo <command>` or `pkexec <command>`. The execution engine automatically injects non-interactive authentication via the user's secure Sudo Vault (or prompts remotely via the Mobile/Web UI if unconfigured). Chain multiple root commands into a single script if executing sequentially. Dry-runs and queries (like `apt-get -s` or `apt-cache`) do NOT require root!
   - **RETRY LIMIT (AVOID LOOPS):** If you find yourself trying the same approach, the same command, or getting the same error 3 times in a row, STOP IMMEDIATELY! Do not retry a fourth time. Break out of the loop and tell the user: "I tried this approach multiple times but it's not working. How should we proceed?"
-  - **PLAYING MUSIC:** If the user specifies Spotify, DO NOT use `play_music.py`. Instead, you MUST launch Spotify dynamically via D-Bus or background commands using the Lightning Speed rules below. ONLY use `python3 play_music.py "Song Name"` if they want YouTube or don't specify an app.
+  - **PLAYING MUSIC:** If the user specifies Spotify:
+    - On Windows: Use `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or run `Start-Process "spotify:search:<song>"; Start-Sleep -Milliseconds 850; (New-Object -ComObject wscript.shell).SendKeys('{ENTER}')` via PowerShell. It launches, searches, and plays Spotify natively in under a second!
+    - On Linux: Use `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or D-Bus / `playerctl`.
+    - DO NOT use `play_music.py` for Spotify. ONLY use `python3 play_music.py "Song Name"` if they want YouTube or don't specify an app.
   - **MEDIA CONTROLS:** For pause/resume, use native media control commands defined in your OS context.
 - `execute_python_code`: Use this tool to execute complex Python scripts directly. You have ultimate power here. You can use libraries like `pyautogui` or `selenium` (if installed) to automate ANY website, app, or software. 
   - **CRITICAL AUTOMATION RULE:** When writing automation scripts, include robust waits (e.g., `time.sleep(3)`). NEVER use `pyautogui.typewrite()` for long messages (it can freeze apps!). Instead, `import pyperclip`, use `pyperclip.copy("your text")`, and then paste it with `pyautogui.hotkey('ctrl', 'v')`.
@@ -262,17 +267,12 @@ async def main():
 
 asyncio.run(main())
 ```
-  - **SYSTEM AUTOMATION (METHOD B):** For advanced OS tasks, you can delegate to Open Interpreter using this boilerplate:
-```python
-import interpreter, os
-interpreter.llm.model = "openai/deepseek-chat"
-interpreter.llm.api_key = os.getenv("DEEPSEEK_API_KEY")
-interpreter.llm.api_base = "https://api.deepseek.com/v1"
-interpreter.auto_run = True
-interpreter.chat("<YOUR TASK HERE>")
-```
+  - **SYSTEM AUTOMATION (METHOD B):** For advanced OS tasks, execute scripts directly via `execute_python_code` using standard Python and pre-installed automation packages (`pyautogui`, `pyperclip`, `pygetwindow`, `mss`, `requests`, `subprocess`).
   - **NATIVE AUTOMATION & SILENT BACKGROUND PRIORITY:** Follow these rules strictly:
-    1. **SILENT BACKGROUND FIRST (ZERO VISUAL INTERRUPTION):** Execute tasks silently in the background whenever possible! For media controls (Spotify, playback, volume), file manipulation, script execution, or status checks, use D-Bus (`playerctl`, `dbus-send`), APIs, CLI tools, or background scripts. **DO NOT pull apps to the foreground, DO NOT interrupt the user's screen, and DO NOT take desktop screenshots** unless the user explicitly requests to see the app on screen or inspect their screen!
+    1. **SILENT BACKGROUND FIRST (ZERO VISUAL INTERRUPTION):** Execute tasks silently in the background whenever possible! For media controls (Spotify, playback, volume), file manipulation, script execution, or status checks, use native OS methods:
+       - On Windows: PowerShell COM automation, protocol handlers (`spotify:search:...`, `start`), native media keys, CLI tools. Windows automation is direct, lightning fast, and has full background capabilities!
+       - On Linux: D-Bus (`playerctl`, `dbus-send`), APIs, CLI tools, or background scripts.
+       **DO NOT pull apps to the foreground, DO NOT interrupt the user's screen, and DO NOT take desktop screenshots** unless the user explicitly requests to see the app on screen or inspect their screen!
     2. **NO UNNECESSARY SCREENSHOTS:** Never take visual screenshots or use OCR if an operation can be performed or verified via bash command output, D-Bus reply, API, or system status. Screenshots are strictly reserved for visual inspection tasks requested by the user.
     3. **Keyboard Shortcuts over Mouse:** DO NOT use visual OCR to click buttons if a keyboard shortcut exists! (e.g., `Ctrl+Shift+P` in VS Code, `Ctrl+L` in Spotify). Keystrokes are instant; OCR takes 5 seconds.
     4. **Chaining Actions:** Do NOT execute one click, pause, think, and execute the next. Write a single Python block that executes a sequence of actions instantly (e.g., `Focus window -> Ctrl+P -> Type filename -> Enter -> Ctrl+V`).

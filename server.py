@@ -240,7 +240,7 @@ def _on_wake_word():
                 WIDGET_STATE["is_speaking"] = False
                 time.sleep(0.15)
 
-            # 2. DIRECT TALK: Multi-turn conversation loop
+            consecutive_empty = 0
             while not brain.abort_flag:
                 WIDGET_STATE["main_text"] = "Listening..."
                 WIDGET_STATE["sub_text"] = ""
@@ -255,8 +255,17 @@ def _on_wake_word():
                 text = listen(on_recording_done=on_speech_captured)
                 print(f"[Server] Voice capture complete. Recognized text: '{text}'")
                 
-                if brain.abort_flag or not text:
+                if brain.abort_flag:
                     break
+                    
+                if not text:
+                    consecutive_empty += 1
+                    if consecutive_empty >= 2:
+                        break
+                    WIDGET_STATE["main_text"] = "I'm listening..."
+                    time.sleep(0.3)
+                    continue
+                consecutive_empty = 0
                 
                 # Show ONLY the user's voice transcribed text on screen
                 WIDGET_STATE["main_text"] = text

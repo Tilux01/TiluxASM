@@ -34,17 +34,25 @@ def run_media_task(data: dict) -> dict:
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         out = res.stdout.strip()
     else: # Windows
-        try:
-            import pyautogui
-            if action in ["next", "skip"]:
-                pyautogui.press("nexttrack")
-            elif action in ["prev", "previous"]:
-                pyautogui.press("prevtrack")
-            else:
-                pyautogui.press("playpause")
-            out = "Simulated Windows media key"
-        except Exception as e:
-            out = str(e)
+        query = data.get("query", data.get("payload", data.get("song", "")))
+        if query and action in ["search", "play", "open"]:
+            import urllib.parse
+            encoded_query = urllib.parse.quote(query)
+            ps_cmd = f'Start-Process "spotify:search:{encoded_query}"; Start-Sleep -Milliseconds 850; (New-Object -ComObject wscript.shell).SendKeys("{{ENTER}}")'
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=10)
+            out = f"Playing '{query}' on Spotify via Windows native protocol"
+        elif action in ["next", "skip"]:
+            ps_cmd = '(New-Object -ComObject wscript.shell).SendKeys([char]176)'
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=5)
+            out = "Skipped to next track"
+        elif action in ["prev", "previous"]:
+            ps_cmd = '(New-Object -ComObject wscript.shell).SendKeys([char]177)'
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=5)
+            out = "Returned to previous track"
+        else:
+            ps_cmd = '(New-Object -ComObject wscript.shell).SendKeys([char]179)'
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=5)
+            out = "Toggled playback via Windows media control"
 
     return {"status": "success", "action": action, "output": out}
 
