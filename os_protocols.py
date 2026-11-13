@@ -164,6 +164,26 @@ class WindowsProtocol:
         # Alternatively, simulate volume steps
         return {"status": "success", "os": "Windows", "action": "set_volume", "output": f"Set volume to {level_percent}%"}
 
+    @classmethod
+    def media_volume_up(cls, step_percent: int = 5) -> dict:
+        """Increases volume on Windows."""
+        for _ in range(max(1, step_percent // 2)):
+            cls._send_vk_key(cls.VK_VOLUME_UP)
+        return {"status": "success", "os": "Windows", "action": "volume_up", "output": "Volume increased"}
+
+    @classmethod
+    def media_volume_down(cls, step_percent: int = 5) -> dict:
+        """Decreases volume on Windows."""
+        for _ in range(max(1, step_percent // 2)):
+            cls._send_vk_key(cls.VK_VOLUME_DOWN)
+        return {"status": "success", "os": "Windows", "action": "volume_down", "output": "Volume decreased"}
+
+    @classmethod
+    def media_mute(cls) -> dict:
+        """Toggles volume mute on Windows."""
+        cls._send_vk_key(cls.VK_VOLUME_MUTE)
+        return {"status": "success", "os": "Windows", "action": "mute", "output": "Toggled mute"}
+
     # --- App / Window Protocols ---
     @classmethod
     def open_url(cls, url: str) -> dict:
@@ -388,6 +408,26 @@ class MacOSProtocol:
         cls._run_osascript(f'set volume output volume {val}')
         return {"status": "success", "os": "macOS", "action": "set_volume", "output": f"Set macOS volume to {val}%"}
 
+    @classmethod
+    def media_volume_up(cls, step_percent: int = 5) -> dict:
+        """Increases macOS system volume."""
+        step = max(1, step_percent)
+        cls._run_osascript(f'set volume output volume ((output volume of (get volume settings)) + {step})')
+        return {"status": "success", "os": "macOS", "action": "volume_up", "output": "Volume increased"}
+
+    @classmethod
+    def media_volume_down(cls, step_percent: int = 5) -> dict:
+        """Decreases macOS system volume."""
+        step = max(1, step_percent)
+        cls._run_osascript(f'set volume output volume ((output volume of (get volume settings)) - {step})')
+        return {"status": "success", "os": "macOS", "action": "volume_down", "output": "Volume decreased"}
+
+    @classmethod
+    def media_mute(cls) -> dict:
+        """Toggles macOS audio mute."""
+        cls._run_osascript('set volume output muted not (output muted of (get volume settings))')
+        return {"status": "success", "os": "macOS", "action": "mute", "output": "Toggled mute"}
+
     # --- App / Window Protocols ---
     @classmethod
     def open_url(cls, url: str) -> dict:
@@ -518,6 +558,29 @@ class LinuxProtocol:
         subprocess.run(cmd, shell=True, capture_output=True, text=True)
         return {"status": "success", "os": "Linux", "action": "set_volume", "output": f"Set Linux volume to {val}%"}
 
+    @classmethod
+    def media_volume_up(cls, step_percent: int = 5) -> dict:
+        """Increases Linux volume."""
+        step = max(1, step_percent)
+        cmd = f"pamixer --increase {step} 2>/dev/null || pactl set-sink-volume @DEFAULT_SINK@ +{step}% 2>/dev/null || amixer set Master {step}%+ 2>/dev/null"
+        subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        return {"status": "success", "os": "Linux", "action": "volume_up", "output": "Volume increased"}
+
+    @classmethod
+    def media_volume_down(cls, step_percent: int = 5) -> dict:
+        """Decreases Linux volume."""
+        step = max(1, step_percent)
+        cmd = f"pamixer --decrease {step} 2>/dev/null || pactl set-sink-volume @DEFAULT_SINK@ -{step}% 2>/dev/null || amixer set Master {step}%- 2>/dev/null"
+        subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        return {"status": "success", "os": "Linux", "action": "volume_down", "output": "Volume decreased"}
+
+    @classmethod
+    def media_mute(cls) -> dict:
+        """Toggles Linux audio mute."""
+        cmd = "pamixer --toggle-mute 2>/dev/null || pactl set-sink-mute @DEFAULT_SINK@ toggle 2>/dev/null || amixer set Master toggle 2>/dev/null"
+        subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        return {"status": "success", "os": "Linux", "action": "mute", "output": "Toggled mute"}
+
     # --- App / Window Protocols ---
     @classmethod
     def open_url(cls, url: str) -> dict:
@@ -640,6 +703,18 @@ class OSProtocols:
     @classmethod
     def media_set_volume(cls, level_percent: int) -> dict:
         return cls.get_handler().media_set_volume(level_percent)
+
+    @classmethod
+    def media_volume_up(cls, step_percent: int = 5) -> dict:
+        return cls.get_handler().media_volume_up(step_percent)
+
+    @classmethod
+    def media_volume_down(cls, step_percent: int = 5) -> dict:
+        return cls.get_handler().media_volume_down(step_percent)
+
+    @classmethod
+    def media_mute(cls) -> dict:
+        return cls.get_handler().media_mute()
 
     # --- Unified App & URL API ---
     @classmethod

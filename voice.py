@@ -144,16 +144,118 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
             print(f"Piper generation error: {e}")
             return b""
 
+_active_speech_streamer = None
+
+def clean_speech_text(text: str) -> str:
+    """Sanitizes Markdown and syntax out of text for spoken speech."""
+    import re
+    clean = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    clean = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean)
+    clean = re.sub(r'```[\s\S]*?```', '', clean)
+    clean = re.sub(r'`[^`]+`', '', clean)
+    clean = re.sub(r'https?://[^\s]+', '', clean)
+    clean = re.sub(r'/[a-zA-Z0-9_./-]+', '', clean)
+    clean = re.sub(r'[*_~`#>\-]', '', clean).strip()
+    return clean
+
+class SpeechStreamer:
+    """Streams sentence chunks to Piper TTS with seamless pipelined playback and sub-second latency."""
+    def __init__(self, on_chunk_start=None):
+        global _active_speech_streamer, _speech_generation_id
+        with _speech_lock:
+            _speech_generation_id += 1
+            self.gen_id = _speech_generation_id
+            _stop_speech_event.clear()
+            _active_speech_streamer = self
+
+        self.queue = Queue()
+        self.on_chunk_start = on_chunk_start
+        self.stop_event = threading.Event()
+        self.worker = threading.Thread(target=self._run, daemon=True)
+        self.worker.start()
+
+    def feed(self, sentence: str):
+        if not self.stop_event.is_set() and sentence:
+            self.queue.put(sentence)
+
+    def finish(self):
+        self.queue.put(None)
+
+    def wait(self, timeout: float = 12.0):
+        self.worker.join(timeout=timeout)
+
+    def stop(self):
+        self.stop_event.set()
+        self.queue.put(None)
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+
+    def _run(self):
+        import sounddevice as sd
+        import numpy as np
+        import time, sys
+        settings = get_voice_settings()
+        tts_voice = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
+        voice_obj = get_piper_voice(tts_voice)
+        sample_rate = getattr(voice_obj.config, "sample_rate", 22050) if voice_obj else 22050
+
+        while not self.stop_event.is_set() and not _stop_speech_event.is_set() and self.gen_id == _speech_generation_id:
+            try:
+                sentence = self.queue.get(timeout=0.05)
+            except Empty:
+                continue
+            if sentence is None:
+                break
+            if not sentence.strip():
+                continue
+
+            if "server" in sys.modules:
+                srv = sys.modules["server"]
+                if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
+                    break
+
+            clean = clean_speech_text(sentence)
+            if not clean:
+                continue
+
+            if self.on_chunk_start and callable(self.on_chunk_start):
+                try:
+                    self.on_chunk_start(clean)
+                except Exception:
+                    pass
+
+            if voice_obj:
+                chunks = []
+                for chunk in voice_obj.synthesize(clean):
+                    if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                        break
+                    chunks.append(chunk.audio_int16_bytes)
+                if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                    break
+                if chunks:
+                    audio_np = np.frombuffer(b"".join(chunks), dtype=np.int16)
+                    sd.play(audio_np, samplerate=sample_rate)
+                    duration_sec = len(audio_np) / float(sample_rate)
+                    t0 = time.time()
+                    while (time.time() - t0) < (duration_sec - 0.015):
+                        if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                            sd.stop()
+                            return
+                        if "server" in sys.modules:
+                            srv = sys.modules["server"]
+                            if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
+                                sd.stop()
+                                return
+                        time.sleep(0.015)
+            else:
+                speak_os_fallback(clean)
+
 def speak(text: str):
     """Converts text to speech and plays it with instantaneous sentence-pipelined streaming and zero lag."""
-    import re, sys
-    clean_text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
-    clean_text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean_text)
-    clean_text = re.sub(r'```[\s\S]*?```', '', clean_text)
-    clean_text = re.sub(r'`[^`]+`', '', clean_text)
-    clean_text = re.sub(r'https?://[^\s]+', '', clean_text)
-    clean_text = re.sub(r'/[a-zA-Z0-9_./-]+', '', clean_text)
-    clean_text = re.sub(r'[*_~`#>\-]', '', clean_text).strip()
+    clean_text = clean_speech_text(text)
     if not clean_text:
         return
     
@@ -330,7 +432,7 @@ def generate_audio_buffer(text: str, voice: str, speed: str) -> bytes:
 
 def terminate_active_audio():
     """Immediately stops all audio playback, kills sounddevice buffer, and aborts speech threads."""
-    global _active_audio_proc, _speech_generation_id
+    global _active_audio_proc, _speech_generation_id, _active_speech_streamer
     with _speech_lock:
         _speech_generation_id += 1
         _stop_speech_event.set()
@@ -341,6 +443,13 @@ def terminate_active_audio():
         sd.stop()
     except Exception:
         pass
+
+    if _active_speech_streamer is not None:
+        try:
+            _active_speech_streamer.stop()
+        except Exception:
+            pass
+        _active_speech_streamer = None
 
     # 2. Terminate any active external speech process (ffplay, etc.)
     if _active_audio_proc is not None:
@@ -522,7 +631,7 @@ def listen(on_recording_done=None) -> str:
     import numpy as np
     import sounddevice as sd
     
-    SILENCE_DURATION = 0.40     # Seconds of trailing silence to finalize recording (fast speech discovery)
+    SILENCE_DURATION = 0.70     # Seconds of trailing silence to finalize recording (fast speech discovery)
     MAX_DURATION = 60.0         # Max seconds of total recording (supports long dictations)
     INITIAL_TIMEOUT = 25.0      # Stays awake 20-30s if user is not speaking before auto-closing
     

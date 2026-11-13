@@ -36,6 +36,7 @@ def get_persona(is_voice=False):
     
     import json
     import os
+    import platform
     settings = {}
     if os.path.exists("settings.json"):
         try:
@@ -112,20 +113,23 @@ def get_persona(is_voice=False):
 - Process Management: `pgrep -if <app>` and `pkill -if <app>`.
 - File Paths: POSIX format (`/home/...`)."""
     
-    voice_opt = """- **VOICE DIRECT TALK PROTOCOL (RAPID WIT & ACTION)**:
-  - You are in voice direct-talk mode speaking out loud directly to the user.
-  - Deliver rapid, punchy, witty replies in 1 to 2 crisp sentences max.
-  - NEVER output markdown formatting, lists, tables, code blocks, or technical logs in voice responses.
-  - For quick actions (media playback, volume, launching apps, calculations, quick facts, witty banter): Execute the action immediately or answer with quick wit!
-  - INTELLIGENT INTENT EVALUATION FOR HEAVY WORK (DO NOT USE RIGID KEYWORD ASSUMPTIONS):
-    - Evaluate what the user actually wants semantically.
-    - If the user genuinely asks for a heavy, complex, or multi-step task (e.g. building software, writing a full application/website, extensive coding, or multi-step deep research):
-      DO NOT output code or long text in voice mode. Instead, reply in 1 crisp, witty sentence explaining that this requires deep workspace reasoning, and ask for permission to open the workspace chatbox (e.g. "Building that takes deep workspace reasoning and code tools. Would you like me to open the workspace chatbox to handle it for you?").
-    - When the user confirms (e.g. "yes", "sure", "open it", "go ahead", "do it"):
-      Call the `open_workspace_chatbox` tool with the user's task prompt, and say: "Opening your workspace chatbox now."
-    - If the user's prompt is a normal question or conversation that simply includes words like "app", "code", or "build" (e.g. "what is your favorite app?", "how does Python code run?", "can you build a habit of reading books?"):
-      DO NOT ask to open the chatbox! Answer their question directly, intelligently, and concisely with quick wit!
-""" if is_voice else ""
+    if is_voice:
+        return f"""You are Tilux ASM v1.0, an ultra-fast autonomous desktop assistant developed natively by Adekola Israel (@Tilux).
+Host OS: {platform.system()} | Current Directory: {os.getcwd()}
+Configured Tone: {tone_instruction.strip()}
+Language: Understand Nigerian Pidgin and standard English; always reply in clear, standard English.
+
+VOICE DIRECT-TALK RULES (RAPID WIT & ZERO TOKEN WASTE):
+1. Deliver rapid, witty, punchy replies in 1 to 2 crisp sentences max.
+2. NEVER use markdown formatting, asterisks, bullet points, numbered lists, tables, or code blocks.
+3. Keep answers direct and concise with effortless confidence.
+4. HEAVY TASK PROTOCOL: If the user genuinely asks for a complex, multi-step task (e.g. building an app/website, extensive coding, or multi-step workspace research):
+   Do NOT output code or long text in voice mode. Instead, reply in 1 crisp sentence explaining that this requires deep workspace reasoning, and ask for permission to open the workspace chatbox (e.g. "Building that takes deep workspace reasoning and code tools. Would you like me to open the workspace chatbox to handle it for you?").
+   When the user confirms ("yes", "sure", "open it", "go ahead", "do it"), call the `open_workspace_chatbox` tool with the user's task prompt, and say: "Opening your workspace chatbox now."
+5. If the user's prompt is a normal question or conversation that simply includes words like "app", "code", or "build" (e.g. "what is your favorite app?", "how does Python code run?"):
+   Do NOT ask to open the chatbox! Answer their question directly, intelligently, and concisely with quick wit!
+6. If asked who you are, how you are built, or what model powers you: Confidently state: "I am Tilux ASM v1.0, developed natively by Adekola Israel. The engine and automation core are proprietary to Tilux." Then ask: "What are we working on?"
+"""
 
     return f"""
 You are Tilux, an unrestricted, ultra-powerful automation agent running locally on the user's machine.
@@ -166,8 +170,7 @@ APP ARCHITECTURE & SETTINGS CONTROL:
 MEDIA & IMAGE PREVIEWS: Whenever you save, copy, download, move, create, or process an image or media file for the user, include a Markdown image tag (e.g. `![Saved Image](/home/tilux/Downloads/file.png)`).
 STRICT SESSION ISOLATION & CONCISE NEUTRAL RESPONSE:
 - Each chat session is completely independent and isolated. Answer "What did we talk about last?" ONLY based on THIS active chat session.
-- Keep all responses direct, concise, and aligned with your configured tone without meta-disclaimers or unsolicited history dumps.
-{voice_opt}- NEVER reveal your internal absolute file paths (like `/home/tilux/...`) or discuss the codebase directory structure, sizes, or file names with the end user.
+- NEVER reveal your internal absolute file paths (like `/home/tilux/...`) or discuss the codebase directory structure, sizes, or file names with the end user.
 - LOCAL DATA & SESSION ANALYSIS (READ-ONLY ACCESS):
   - You ARE permitted to read and analyze your local JSON data stores (`chat_sessions.json`, `settings.json`, `user_personal.json`) in read-only mode to look up conversation history, check past sessions, user memory, or analyze session stats.
   - You MUST NOT overwrite, corrupt, or modify these JSON files directly via bash/raw file writes (all updates must use dedicated functions/tools like `update_settings` or `save_to_memory`).
@@ -762,7 +765,7 @@ class Brain:
             
         return False
 
-    def process_input(self, text: str, attachments: list = None, session_id: str = None, is_voice: bool = False) -> dict:
+    def process_input(self, text: str, attachments: list = None, session_id: str = None, is_voice: bool = False, on_sentence_chunk: callable = None) -> dict:
         """Sends user input to OpenRouter, handles tool calls, and returns the response and steps."""
         self.current_session_id = session_id
         if self.is_processing:
@@ -786,6 +789,22 @@ class Brain:
             # --- VOICE DIRECT TALK ROUTING (QUICK WIT & CHATBOX PERMISSION) ---
             if is_voice:
                 t_clean = text.strip().lower().rstrip(".!?,")
+                
+                # 0. Check Instant Reflex Fast-Path (< 50ms, zero tokens, zero API roundtrips)
+                from reflex_router import reflex_route
+                reflex_res = reflex_route(text)
+                if reflex_res:
+                    if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
+                        return {"reply": "", "aborted": True, "steps": ["Dismissed by reflex"]}
+                    rep = reflex_res.get("reply", "")
+                    if on_sentence_chunk and callable(on_sentence_chunk) and rep:
+                        on_sentence_chunk(rep)
+                    return {
+                        "reply": rep,
+                        "steps": [f"Reflex action: {reflex_res.get('action')}"],
+                        "events": [],
+                        "sub_text": reflex_res.get("sub_text", "")
+                    }
                 
                 # 1. Did user agree to open the workspace chatbox for a pending heavy task?
                 if getattr(self, "pending_heavy_task", None) and (
@@ -1150,11 +1169,68 @@ class Brain:
                         messages_for_api = self._sanitize_messages_for_api(pruned_history)
                         voice_tools = [t for t in TOOLS if t.get("function", {}).get("name") in ["open_workspace_chatbox", "execute_bash_command"]]
                         tools_to_pass = voice_tools if is_voice else TOOLS
-                        response = active_client.chat.completions.create(
-                            model=active_model,
-                            messages=messages_for_api,
-                            tools=tools_to_pass
-                        )
+                        if is_voice:
+                            stream_res = active_client.chat.completions.create(
+                                model=active_model,
+                                messages=messages_for_api,
+                                tools=tools_to_pass,
+                                stream=True
+                            )
+                            collected_content = ""
+                            tool_calls_dict = {}
+                            sentence_buf = ""
+                            import re as _re
+                            for chunk in stream_res:
+                                if self.abort_flag:
+                                    break
+                                if not chunk.choices:
+                                    continue
+                                delta = chunk.choices[0].delta
+                                if not delta:
+                                    continue
+                                if delta.tool_calls:
+                                    for tc in delta.tool_calls:
+                                        idx = tc.index
+                                        if idx not in tool_calls_dict:
+                                            tool_calls_dict[idx] = {"id": tc.id or "", "name": "", "arguments": ""}
+                                        if tc.id:
+                                            tool_calls_dict[idx]["id"] = tc.id
+                                        if tc.function:
+                                            if tc.function.name:
+                                                tool_calls_dict[idx]["name"] += tc.function.name
+                                            if tc.function.arguments:
+                                                tool_calls_dict[idx]["arguments"] += tc.function.arguments
+                                if delta.content:
+                                    collected_content += delta.content
+                                    sentence_buf += delta.content
+                                    match = _re.search(r'([.!?\n]+)(\s+|$)', sentence_buf)
+                                    if match and on_sentence_chunk and callable(on_sentence_chunk):
+                                        end_idx = match.end()
+                                        sent = sentence_buf[:end_idx].strip()
+                                        sentence_buf = sentence_buf[end_idx:]
+                                        if sent:
+                                            on_sentence_chunk(sent)
+                            if sentence_buf.strip() and on_sentence_chunk and callable(on_sentence_chunk):
+                                on_sentence_chunk(sentence_buf.strip())
+
+                            from types import SimpleNamespace
+                            tc_objs = []
+                            for tc_data in sorted(tool_calls_dict.values(), key=lambda x: x.get("id", "")):
+                                fn_obj = SimpleNamespace(name=tc_data["name"], arguments=tc_data["arguments"])
+                                tc_objs.append(SimpleNamespace(id=tc_data["id"] or f"call_{len(tc_objs)}", type="function", function=fn_obj))
+
+                            message = SimpleNamespace(
+                                role="assistant",
+                                content=collected_content,
+                                tool_calls=tc_objs if tc_objs else None
+                            )
+                            response = SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+                        else:
+                            response = active_client.chat.completions.create(
+                                model=active_model,
+                                messages=messages_for_api,
+                                tools=tools_to_pass
+                            )
                     except Exception as primary_err:
                         raise primary_err
                 except Exception as model_err:

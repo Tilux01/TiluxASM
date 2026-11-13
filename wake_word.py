@@ -96,10 +96,12 @@ class WakeWordEngine:
             "the looks", "the locks", "the lux", "the lox", "the alex",
             "til looks", "til locks", "til lux",
             "still looks",
+            "it's looks",
             "tell looks",
             "she looks",
             "it looks",
-            "tie looks"
+            "tie looks",
+            "he looks",
             "they tell looks", "they tell us",
             "tea locks", "tee locks", "tie locks",
             "tea looks", "tee looks", "tie looks",
@@ -110,15 +112,23 @@ class WakeWordEngine:
         ]
 
     def check_trigger(self, text: str) -> bool:
+        is_trig, _ = self.extract_trigger_and_trailing(text)
+        return is_trig
+
+    def extract_trigger_and_trailing(self, text: str):
         if not text:
-            return False
+            return False, ""
         clean = text.lower().strip()
-        if WAKE_REGEX.search(clean):
-            return True
+        m = WAKE_REGEX.search(clean)
+        if m:
+            trailing = clean[m.end():].strip(" ,.:;-")
+            return True, trailing
         for kw in self.active_keywords:
             if kw in clean:
-                return True
-        return False
+                idx = clean.find(kw)
+                trailing = clean[idx + len(kw):].strip(" ,.:;-")
+                return True, trailing
+        return False, ""
 
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
@@ -152,6 +162,7 @@ class WakeWordEngine:
                 continue
                 
             triggered = False
+            triggered_trailing = ""
             try:
                 # 2000 samples @ 16kHz = 125ms chunks for low-latency streaming recognition
                 with sd.RawInputStream(samplerate=16000, blocksize=2000, dtype='int16',
@@ -173,23 +184,26 @@ class WakeWordEngine:
                             result = json.loads(recognizer.PartialResult())
                             text = result.get("partial", "").lower().strip()
                             
-                        if text and self.check_trigger(text):
-                            print(f"[WakeWord] Trigger word detected in audio: '{text}'")
-                            recognizer.Reset()
-                            self.is_paused = True
-                            triggered = True
-                            break
+                        if text:
+                            is_trig, trailing = self.extract_trigger_and_trailing(text)
+                            if is_trig:
+                                print(f"[WakeWord] Trigger word detected! Trailing command: '{trailing}'")
+                                recognizer.Reset()
+                                self.is_paused = True
+                                triggered = True
+                                triggered_trailing = trailing
+                                break
             except Exception as stream_err:
                 print(f"[WakeWord] Microphone stream notice: {stream_err}. Retrying in 2s...")
                 time.sleep(2.0)
                 
             # Safely invoke callback ONLY after the microphone stream is fully closed
             if triggered:
-                print("[WakeWord] Trigger active! Closing wake mic and launching assistant...")
+                print(f"[WakeWord] Trigger active! Launching assistant (trailing: '{triggered_trailing}')...")
                 try:
+                    self.callback(triggered_trailing)
+                except TypeError:
                     self.callback()
-                except Exception as e:
-                    print(f"[WakeWord] Callback error: {e}")
                 
         print("[WakeWord] Engine stopped.")
 

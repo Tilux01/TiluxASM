@@ -169,14 +169,14 @@ def trigger_open_chat(prompt: str):
 
 is_voice_assistant_active = False
 
-def _on_wake_word():
+def _on_wake_word(initial_phrase=""):
     global WAKE_WORD_TRIGGERED, WIDGET_STATE, current_widget_proc, is_voice_assistant_active
     import time
     if is_voice_assistant_active:
         print("[Server] Voice assistant already active, ignoring duplicate trigger.")
         return
     is_voice_assistant_active = True
-    print("[Server] _on_wake_word triggered by wake engine!")
+    print(f"[Server] _on_wake_word triggered by wake engine! (initial_phrase: '{initial_phrase}')")
     WAKE_WORD_TRIGGERED = True
     socketio.emit("wake_word_detected", {"status": "listening"})
     
@@ -186,8 +186,13 @@ def _on_wake_word():
     time.sleep(0.05)
     brain.abort_flag = False
     
-    # Generate random tone-matched wake greeting
-    wake_greeting = brain.generate_wake_acknowledgment()
+    # Generate snappy, ultra-short wake acknowledgment if no trailing phrase
+    wake_greeting = ""
+    if not initial_phrase:
+        raw_greeting = brain.generate_wake_acknowledgment()
+        # Ensure wake greeting is snappy (under 4 words max) to never delay the user
+        words = raw_greeting.split()
+        wake_greeting = " ".join(words[:3]) if len(words) > 3 else raw_greeting
     
     import subprocess
     import threading
@@ -195,11 +200,11 @@ def _on_wake_word():
     exe_path = settings.get("frontend_executable", "npm")
     
     WIDGET_STATE = {
-        "main_text": "Speaking...",
-        "sub_text": wake_greeting if wake_greeting else "",
+        "main_text": initial_phrase if initial_phrase else ("Speaking..." if wake_greeting else "Listening..."),
+        "sub_text": "Thinking..." if initial_phrase else (wake_greeting if wake_greeting else ""),
         "speak_text": "",
         "speak_id": 0,
-        "is_speaking": True,
+        "is_speaking": bool(wake_greeting and not initial_phrase),
         "reply_text": ""
     }
     
@@ -215,14 +220,15 @@ def _on_wake_word():
             else:
                 current_widget_proc = subprocess.Popen([exe_path, "--widget"])
     
-    def background_task(my_proc):
+    def background_task(my_proc, queued_initial=""):
         global WIDGET_STATE, is_voice_assistant_active
         import time, re
+        from reflex_router import reflex_route
         brain.abort_flag = False
         try:
-            # 1. Immediately speak tone wake greeting
-            if wake_greeting and is_voice_assistant_active and not brain.abort_flag:
-                print(f"[Server] Speaking tone wake greeting: '{wake_greeting}'")
+            # 1. If no initial phrase was detected, speak quick wake acknowledgment
+            if wake_greeting and not queued_initial and is_voice_assistant_active and not brain.abort_flag:
+                print(f"[Server] Speaking quick wake acknowledgment: '{wake_greeting}'")
                 WIDGET_STATE["main_text"] = "Speaking..."
                 WIDGET_STATE["sub_text"] = wake_greeting
                 WIDGET_STATE["is_speaking"] = True
@@ -232,32 +238,39 @@ def _on_wake_word():
                     WIDGET_SPEECH_EVENT.clear()
                     WIDGET_STATE["speak_text"] = wake_greeting
                     word_count = len(wake_greeting.split())
-                    timeout_sec = max(1.8, (word_count * 0.28) + 1.0)
+                    timeout_sec = max(1.2, (word_count * 0.25) + 0.5)
                     WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                 else:
                     speak(wake_greeting)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["sub_text"] = ""
-                time.sleep(0.15)
+                time.sleep(0.05)
 
+            first_turn = True
             while not brain.abort_flag and is_voice_assistant_active:
                 if my_proc and my_proc.poll() is not None:
                     print("[Server] Widget process closed by user. Terminating voice assistant.")
                     break
 
-                WIDGET_STATE["main_text"] = "Listening..."
-                WIDGET_STATE["sub_text"] = ""
-                WIDGET_STATE["is_speaking"] = False
-                
-                def on_speech_captured():
-                    global WIDGET_STATE
-                    WIDGET_STATE["main_text"] = "Transcribing..."
+                if first_turn and queued_initial:
+                    text = queued_initial
+                    print(f"[Server] Fast-path: executing queued wake command without delay: '{text}'")
+                    first_turn = False
+                else:
+                    first_turn = False
+                    WIDGET_STATE["main_text"] = "Listening..."
                     WIDGET_STATE["sub_text"] = ""
-                    print("[Server] User speech captured. Transcribing...")
+                    WIDGET_STATE["is_speaking"] = False
+                    
+                    def on_speech_captured():
+                        global WIDGET_STATE
+                        WIDGET_STATE["main_text"] = "Transcribing..."
+                        WIDGET_STATE["sub_text"] = ""
+                        print("[Server] User speech captured. Transcribing...")
 
-                text = listen(on_recording_done=on_speech_captured)
-                print(f"[Server] Voice capture complete. Recognized text: '{text}'")
+                    text = listen(on_recording_done=on_speech_captured)
+                    print(f"[Server] Voice capture complete. Recognized text: '{text}'")
                 
                 if brain.abort_flag or not is_voice_assistant_active:
                     break
@@ -270,40 +283,85 @@ def _on_wake_word():
                 # Show user's transcribed question and initial thinking status
                 WIDGET_STATE["main_text"] = text
                 WIDGET_STATE["sub_text"] = "Thinking..."
-                
                 brain.abort_flag = False
+
+                # 2. Instant Reflex Fast-Path Check (< 50ms, zero tokens)
+                reflex_res = reflex_route(text)
+                if reflex_res:
+                    print(f"[Server] ⚡ Reflex router handled: '{text}' -> {reflex_res.get('action')}")
+                    if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
+                        break
+                    reply_text = reflex_res.get("reply", "")
+                    clean_sub = reflex_res.get("sub_text", "") or reply_text
+                    if reply_text and is_voice_assistant_active and not brain.abort_flag:
+                        WIDGET_STATE["main_text"] = "Speaking..."
+                        WIDGET_STATE["sub_text"] = clean_sub
+                        WIDGET_STATE["reply_text"] = reply_text
+                        WIDGET_STATE["is_speaking"] = True
+                        WIDGET_STATE["speak_id"] = time.time()
+                        if WIDGET_CLIENT_CAPS.get("browser_tts", False):
+                            WIDGET_SPEECH_EVENT.clear()
+                            WIDGET_STATE["speak_text"] = reply_text
+                            timeout_sec = max(2.0, (len(reply_text.split()) * 0.25) + 1.0)
+                            WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                        else:
+                            speak(reply_text)
+                    WIDGET_STATE["is_speaking"] = False
+                    WIDGET_STATE["sub_text"] = ""
+                    WIDGET_STATE["main_text"] = "Listening..."
+                    time.sleep(0.15)
+                    continue
                 
-                reply_data = brain.process_input(text, [], is_voice=True)
+                # 3. Stream-to-Speech LLM Execution
+                streamer = None
+                if not WIDGET_CLIENT_CAPS.get("browser_tts", False):
+                    from voice import SpeechStreamer
+                    def on_first_audio(sent):
+                        WIDGET_STATE["main_text"] = "Speaking..."
+                        WIDGET_STATE["sub_text"] = sent
+                        WIDGET_STATE["reply_text"] = sent
+                        WIDGET_STATE["is_speaking"] = True
+                    streamer = SpeechStreamer(on_chunk_start=on_first_audio)
+
+                def on_sentence(sent):
+                    if streamer:
+                        streamer.feed(sent)
+                    else:
+                        WIDGET_STATE["main_text"] = "Speaking..."
+                        WIDGET_STATE["sub_text"] = sent
+                        WIDGET_STATE["reply_text"] = sent
+                        WIDGET_STATE["speak_text"] = sent
+                        WIDGET_STATE["is_speaking"] = True
+
+                reply_data = brain.process_input(text, [], is_voice=True, on_sentence_chunk=on_sentence)
+                
+                if streamer:
+                    streamer.finish()
+                    streamer.wait(timeout=12.0)
                 
                 if brain.abort_flag or reply_data.get("aborted") or not is_voice_assistant_active:
                     break
                     
                 reply_text = reply_data.get("reply", "")
                 
-                if reply_text and is_voice_assistant_active and not brain.abort_flag:
+                # Browser TTS playback if active
+                if reply_text and WIDGET_CLIENT_CAPS.get("browser_tts", False) and is_voice_assistant_active and not brain.abort_flag:
                     clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
-                    # Change main_text to "Speaking..." during speech output
                     WIDGET_STATE["main_text"] = "Speaking..."
                     WIDGET_STATE["sub_text"] = clean_widget_text
                     WIDGET_STATE["reply_text"] = reply_text
                     WIDGET_STATE["is_speaking"] = True
                     WIDGET_STATE["speak_id"] = time.time()
+                    WIDGET_SPEECH_EVENT.clear()
+                    WIDGET_STATE["speak_text"] = reply_text
+                    word_count = len(clean_widget_text.split())
+                    timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
+                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                     
-                    if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                        WIDGET_SPEECH_EVENT.clear()
-                        WIDGET_STATE["speak_text"] = reply_text
-                        word_count = len(clean_widget_text.split())
-                        timeout_sec = max(3.5, (word_count * 0.28) + 1.5)
-                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
-                    else:
-                        speak(reply_text)
-                    
-                    WIDGET_STATE["is_speaking"] = False
-                    WIDGET_STATE["sub_text"] = ""
-                    WIDGET_STATE["main_text"] = "Listening..."
-                    time.sleep(0.3)
-                else:
-                    break
+                WIDGET_STATE["is_speaking"] = False
+                WIDGET_STATE["sub_text"] = ""
+                WIDGET_STATE["main_text"] = "Listening..."
+                time.sleep(0.2)
         finally:
             WIDGET_STATE["main_text"] = ""
             WIDGET_STATE["sub_text"] = ""
@@ -315,7 +373,7 @@ def _on_wake_word():
             wake_word.resume_wake_word()
                 
     try:
-        threading.Thread(target=background_task, args=(current_widget_proc,), daemon=True).start()
+        threading.Thread(target=background_task, args=(current_widget_proc, initial_phrase), daemon=True).start()
     except Exception as e:
         print(f"[Server] Error launching background voice thread: {e}")
         is_voice_assistant_active = False
