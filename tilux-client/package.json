@@ -71,7 +71,13 @@
 
     "mac": {
       "target": "dmg",
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "category": "public.app-category.utilities",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Tilux needs microphone access for hands-free voice assistant and offline wake word listening.",
+        "NSScreenCaptureUsageDescription": "Tilux needs screen recording access to assist with desktop automation.",
+        "NSAppleEventsUsageDescription": "Tilux needs automation access to control apps and media on your Mac."
+      }
     }
   },
   "keywords": [],

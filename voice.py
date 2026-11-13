@@ -16,10 +16,12 @@ def noalsaerr():
         import platform
         if platform.system() == "Linux":
             asound = cdll.LoadLibrary('libasound.so')
-        asound.snd_lib_error_set_handler(c_error_handler)
-        yield
-        asound.snd_lib_error_set_handler(None)
-    except:
+            asound.snd_lib_error_set_handler(c_error_handler)
+            yield
+            asound.snd_lib_error_set_handler(None)
+        else:
+            yield
+    except Exception:
         yield
 
 import json

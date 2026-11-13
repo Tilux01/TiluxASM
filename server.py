@@ -239,11 +239,14 @@ def _on_wake_word(initial_phrase=""):
     is_ui_active = (time.time() - last_ui_poll_time) < 4.0
     if not is_ui_active:
         if current_widget_proc is None or current_widget_proc.poll() is not None:
-            electron_bin = os.path.join("tilux-client", "node_modules", ".bin", "electron")
+            is_win = platform.system() == "Windows"
+            electron_name = "electron.cmd" if is_win else "electron"
+            electron_bin = os.path.join("tilux-client", "node_modules", ".bin", electron_name)
             if os.path.exists(electron_bin):
-                current_widget_proc = subprocess.Popen([electron_bin, "./tilux-client", "--widget"])
+                current_widget_proc = subprocess.Popen([electron_bin, "./tilux-client", "--widget"], shell=is_win)
             elif exe_path == "npm":
-                current_widget_proc = subprocess.Popen(["npm", "start", "--", "--widget"], cwd="tilux-client")
+                npm_cmd = "npm.cmd" if is_win else "npm"
+                current_widget_proc = subprocess.Popen([npm_cmd, "start", "--", "--widget"], cwd="tilux-client", shell=is_win)
             else:
                 current_widget_proc = subprocess.Popen([exe_path, "--widget"])
     

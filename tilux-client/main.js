@@ -327,6 +327,15 @@ function createWindow () {
 
 app.whenReady().then(async () => {
     app.setAppUserModelId("com.tilux.asm");
+    
+    // Proactively request macOS permissions (Microphone & Accessibility) on Mac
+    if (process.platform === 'darwin') {
+        const { systemPreferences } = require('electron');
+        if (systemPreferences && systemPreferences.askForMediaAccess) {
+            systemPreferences.askForMediaAccess('microphone').catch(() => {});
+        }
+    }
+
     const isWidgetMode = process.argv.includes('--widget');
     if (isWidgetMode) {
         // We still need to call the IPC handler logic we defined below, so we just trigger it internally
