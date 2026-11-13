@@ -17,6 +17,16 @@ import urllib.parse
 import time
 import shutil
 
+# Ensure this directory is in sys.path
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+if _current_dir not in sys.path:
+    sys.path.insert(0, _current_dir)
+
+# Register both in sys.modules so either key works seamlessly
+if __name__ in sys.modules:
+    sys.modules['os_protocol'] = sys.modules[__name__]
+    sys.modules['os_protocols'] = sys.modules[__name__]
+
 CURRENT_OS = platform.system()  # "Windows", "Darwin", "Linux"
 
 # =====================================================================

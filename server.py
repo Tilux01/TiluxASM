@@ -247,21 +247,16 @@ def _on_wake_word(initial_phrase=""):
                 print(f"[Server] Speaking wake acknowledgment: '{wake_greeting}'")
                 WIDGET_STATE["main_text"] = "Speaking..."
                 WIDGET_STATE["sub_text"] = wake_greeting
+                WIDGET_STATE["reply_text"] = wake_greeting
                 WIDGET_STATE["is_speaking"] = True
                 WIDGET_STATE["speak_id"] = time.time()
                 
-                if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                    WIDGET_SPEECH_EVENT.clear()
-                    WIDGET_STATE["speak_text"] = wake_greeting
-                    word_count = len(wake_greeting.split())
-                    timeout_sec = max(1.5, (word_count * 0.35) + 0.5)
-                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
-                else:
-                    speak(wake_greeting)
+                speak(wake_greeting)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["sub_text"] = ""
-                time.sleep(0.30)
+                WIDGET_STATE["main_text"] = "Listening..."
+                time.sleep(0.20)
 
             first_turn = True
             while not brain.abort_flag and is_voice_assistant_active:
@@ -323,12 +318,9 @@ def _on_wake_word(initial_phrase=""):
                             WIDGET_STATE["reply_text"] = reply_text
                             WIDGET_STATE["is_speaking"] = True
                             WIDGET_STATE["speak_id"] = time.time()
-                            if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                                WIDGET_SPEECH_EVENT.clear()
-                                WIDGET_STATE["speak_text"] = reply_text
-                                WIDGET_SPEECH_EVENT.wait(timeout=1.5)
-                            else:
-                                speak(reply_text)
+                            speak(reply_text)
+                            WIDGET_STATE["is_speaking"] = False
+                            WIDGET_STATE["sub_text"] = ""
                         break
                     reply_text = reflex_res.get("reply", "")
                     clean_sub = reflex_res.get("sub_text", "") or reply_text
@@ -338,17 +330,11 @@ def _on_wake_word(initial_phrase=""):
                         WIDGET_STATE["reply_text"] = reply_text
                         WIDGET_STATE["is_speaking"] = True
                         WIDGET_STATE["speak_id"] = time.time()
-                        if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                            WIDGET_SPEECH_EVENT.clear()
-                            WIDGET_STATE["speak_text"] = reply_text
-                            timeout_sec = max(2.0, (len(reply_text.split()) * 0.25) + 1.0)
-                            WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
-                        else:
-                            speak(reply_text)
+                        speak(reply_text)
                     WIDGET_STATE["is_speaking"] = False
                     WIDGET_STATE["sub_text"] = ""
-                    time.sleep(0.35)
                     WIDGET_STATE["main_text"] = "Listening..."
+                    time.sleep(0.25)
                     continue
                 
                 # 3. AI Execution (Thinking is completely silent; only final response speaks)
@@ -368,20 +354,14 @@ def _on_wake_word(initial_phrase=""):
                     WIDGET_STATE["is_speaking"] = True
                     WIDGET_STATE["speak_id"] = time.time()
                     
-                    if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                        WIDGET_SPEECH_EVENT.clear()
-                        WIDGET_STATE["speak_text"] = reply_text
-                        word_count = len(clean_widget_text.split())
-                        timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
-                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
-                    else:
-                        speak(reply_text)
+                    speak(reply_text)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["speak_text"] = ""
                 WIDGET_STATE["reply_text"] = ""
                 WIDGET_STATE["speak_id"] = 0
                 WIDGET_STATE["sub_text"] = ""
+                WIDGET_STATE["main_text"] = "Listening..."
 
                 if reply_data.get("close_voice_assistant", False):
                     print("[Server] Voice assistant close requested by AI.")
@@ -894,18 +874,35 @@ def get_system_stats():
         elif b < 1024**2: return f"{b/1024:.1f} KB/s"
         else: return f"{b/(1024**2):.1f} MB/s"
 
-    # Get top 5 processes by CPU usage using bash ps command
+    # Cross-platform top 5 processes by CPU/Memory using psutil (Windows, macOS, Linux)
+    top_processes = []
     try:
-        ps_output = subprocess.check_output("ps -eo comm,%cpu,%mem --sort=-%cpu | head -n 6", shell=True).decode('utf-8')
-        lines = ps_output.strip().split('\n')[1:] # Skip header
-        top_processes = []
-        for line in lines:
-            parts = line.split()
-            if len(parts) >= 3:
-                name = " ".join(parts[:-2])
-                top_processes.append({"name": name, "cpu": parts[-2], "mem": parts[-1]})
+        procs = []
+        for p in psutil.process_iter(['name', 'cpu_percent', 'memory_percent']):
+            try:
+                info = p.info
+                if info and info.get('name'):
+                    procs.append(info)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        sorted_procs = sorted(
+            procs,
+            key=lambda x: (x.get('cpu_percent') or 0.0, x.get('memory_percent') or 0.0),
+            reverse=True
+        )[:5]
+        for p in sorted_procs:
+            c = p.get('cpu_percent') or 0.0
+            m = p.get('memory_percent') or 0.0
+            pname = p.get('name') or 'Unknown'
+            if pname.lower().endswith('.exe'):
+                pname = pname[:-4]
+            top_processes.append({
+                "name": pname,
+                "cpu": f"{c:.1f}",
+                "mem": f"{m:.1f}"
+            })
     except Exception as e:
-        top_processes = [{"name": "Error fetching", "cpu": "0", "mem": "0"}]
+        top_processes = [{"name": "System", "cpu": "0.0", "mem": "0.0"}]
 
     return jsonify({
         "cpu": cpu, 

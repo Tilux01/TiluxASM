@@ -868,6 +868,9 @@ class Brain:
             self.abort_flag = True
             self.lock.acquire()
 
+        think_event = None
+        steps_taken = []
+
         try:
             self.is_processing = True
             self.abort_flag = False
@@ -884,8 +887,13 @@ class Brain:
                 t_clean = text.strip().lower().rstrip(".!?,")
                 
                 # 0. Check Instant Reflex Fast-Path (< 50ms, zero tokens, zero API roundtrips)
-                from reflex_router import reflex_route
-                reflex_res = reflex_route(text)
+                try:
+                    from reflex_router import reflex_route
+                    reflex_res = reflex_route(text)
+                except Exception as rf_err:
+                    print(f"[Brain] Reflex router warning: {rf_err}")
+                    reflex_res = None
+
                 if reflex_res:
                     if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
                         return {"reply": reflex_res.get("reply", ""), "aborted": True, "steps": ["Dismissed by reflex"], "close_voice_assistant": True}
@@ -1678,7 +1686,8 @@ class Brain:
 
             
             # If we exit the while loop, we hit the max_loops limit
-            think_event["status"] = "completed"
+            if think_event and isinstance(think_event, dict):
+                think_event["status"] = "completed"
             self.current_status = "Summarizing progress..."
             
             # Force the model to summarize its progress instead of returning a generic error
@@ -1711,10 +1720,11 @@ class Brain:
             reply = sanitize_text(summary_response.choices[0].message.content or "I reached my internal loop limit trying to solve this. Please check what I did and guide me!")
             self.history.append({"role": "assistant", "content": reply})
             
-            return {"reply": reply, "steps": steps_taken, "events": self.current_events, "close_voice_assistant": getattr(self, "should_close_voice", False)}
+            return {"reply": reply, "steps": steps_taken, "events": list(self.current_events), "close_voice_assistant": getattr(self, "should_close_voice", False)}
                     
         except Exception as e:
-            think_event["status"] = "completed"
+            if think_event and isinstance(think_event, dict):
+                think_event["status"] = "completed"
             error_str = str(e).lower()
             if "401" in error_str or "403" in error_str:
                 clean_error = "Authentication Error: My brain couldn't connect because the cognitive link is unauthorized. Please check your setup."
@@ -1723,7 +1733,7 @@ class Brain:
             else:
                 clean_error = f"Server Error: {str(e)}"
                 
-            return {"reply": clean_error, "steps": steps_taken, "events": self.current_events}
+            return {"reply": clean_error, "steps": steps_taken, "events": list(self.current_events)}
         finally:
             self.is_processing = False
             self.current_status = ""

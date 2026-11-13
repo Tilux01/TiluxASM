@@ -164,20 +164,12 @@
     <script>
         let isDismissed = false;
         let fullMainText = "";
-        let lastSpokenId = null;
-        let voices = [];
-        let hasSpeech = ('speechSynthesis' in window);
+        let emptyStateCount = 0;
 
         function dismissWidget(e) {
             if (e && e.stopPropagation) e.stopPropagation();
             if (isDismissed) return;
             isDismissed = true;
-
-            if (hasSpeech) {
-                try {
-                    window.speechSynthesis.cancel();
-                } catch(err) {}
-            }
 
             try {
                 if (navigator.sendBeacon) {
@@ -203,102 +195,6 @@
             if (e.key === 'Escape') dismissWidget(e);
         });
 
-        function refreshVoices() {
-            if (!hasSpeech) return;
-            try {
-                voices = window.speechSynthesis.getVoices() || [];
-                if (voices.length > 0) {
-                    reportCapabilities(true);
-                }
-            } catch(e) {}
-        }
-
-        async function reportCapabilities(canSpeak) {
-            try {
-                await fetch('http://127.0.0.1:8932/api/widget_capabilities', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ browser_tts: canSpeak && voices.length > 0 })
-                });
-            } catch(e) {}
-        }
-
-        if (hasSpeech) {
-            refreshVoices();
-            if (window.speechSynthesis.onvoiceschanged !== undefined) {
-                window.speechSynthesis.onvoiceschanged = refreshVoices;
-            }
-            setTimeout(refreshVoices, 300);
-        } else {
-            reportCapabilities(false);
-        }
-
-        function cleanSpokenText(text) {
-            if (!text) return "";
-            return text
-                .replace(/!\[.*?\]\(.*?\)/g, '')
-                .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-                .replace(/```[\s\S]*?```/g, '')
-                .replace(/`[^`]+`/g, '')
-                .replace(/https?:\/\/[^\s]+/g, '')
-                .replace(/[*_~`#>\-]/g, '')
-                .trim();
-        }
-
-        function speakWithBrowserSync(rawText, speakId) {
-            if (speakId === lastSpokenId || !rawText) return;
-            lastSpokenId = speakId;
-
-            const cleanText = cleanSpokenText(rawText);
-            const orb = document.getElementById('orb');
-
-            if (!cleanText) return;
-
-            if (!hasSpeech || voices.length === 0) {
-                if (orb) orb.style.animationDuration = "0.7s";
-                setTimeout(() => {
-                    if (orb) orb.style.animationDuration = "2s";
-                    fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-                }, Math.min(5000, Math.max(1500, cleanText.split(' ').length * 280)));
-                return;
-            }
-
-            try {
-                window.speechSynthesis.cancel();
-                window.speechSynthesis.resume();
-
-                const utterance = new SpeechSynthesisUtterance(cleanText);
-                utterance.rate = 1.05;
-
-                const chosenVoice = voices.find(v => 
-                    v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Jenny') || v.name.includes('Guy'))
-                ) || voices.find(v => v.lang.startsWith('en')) || voices[0];
-
-                if (chosenVoice) utterance.voice = chosenVoice;
-
-                utterance.onstart = () => {
-                    if (orb) orb.style.animationDuration = "0.7s";
-                };
-
-                utterance.onend = () => {
-                    if (orb) orb.style.animationDuration = "2s";
-                    fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-                };
-
-                utterance.onerror = () => {
-                    if (orb) orb.style.animationDuration = "2s";
-                    fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-                };
-
-                window.speechSynthesis.speak(utterance);
-            } catch(e) {
-                if (orb) orb.style.animationDuration = "2s";
-                fetch('http://127.0.0.1:8932/api/widget_speech_done', { method: 'POST' }).catch(() => {});
-            }
-        }
-
-        let emptyStateCount = 0;
-
         async function updateState() {
             if (isDismissed) return;
             try {
@@ -317,26 +213,7 @@
                     emptyStateCount = 0;
                 }
 
-                // 1. Only speak if server is actively in the Speaking state with a valid speak_id
-                if ((data.is_speaking || data.main_text === "Speaking...") && data.speak_id && data.speak_id !== lastSpokenId) {
-                    if (data.speak_text) {
-                        speakWithBrowserSync(data.speak_text, data.speak_id);
-                    } else if (data.reply_text) {
-                        lastSpokenId = data.speak_id;
-                        const orb = document.getElementById('orb');
-                        if (orb) orb.style.animationDuration = "0.7s";
-                        setTimeout(() => {
-                            if (orb) orb.style.animationDuration = "2s";
-                        }, 2500);
-                    }
-                } else if (!data.is_speaking && data.main_text !== "Speaking..." && hasSpeech && window.speechSynthesis.speaking) {
-                    // Instantly cancel any lingering speech when assistant is thinking or listening
-                    try {
-                        window.speechSynthesis.cancel();
-                    } catch(e) {}
-                }
-
-                // 2. Text rendering: plain slant (italic) with no badges, pills, or emojis
+                // 1. Text rendering & Speaking synchronization
                 if (data.is_speaking || data.main_text === "Speaking...") {
                     if (mainEl && mainEl.innerText !== "Speaking...") {
                         mainEl.innerText = "Speaking...";
@@ -345,7 +222,8 @@
                         subEl.innerText = data.reply_text || data.sub_text || "";
                         subEl.style.color = "#c084fc";
                     }
-                } else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
+                }
+ else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
                     if (mainEl && mainEl.innerText !== data.main_text) {
                         mainEl.innerText = data.main_text;
                     }

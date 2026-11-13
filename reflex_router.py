@@ -8,9 +8,21 @@ Everything else falls through to the full LLM brain.
 import re
 import datetime
 import platform
+import os
+import sys
 from typing import Optional, Dict, Any
 
-from os_protocols import OSProtocols
+_parent_dir = os.path.dirname(os.path.abspath(__file__))
+if _parent_dir not in sys.path:
+    sys.path.insert(0, _parent_dir)
+
+try:
+    from os_protocols import OSProtocols
+except ImportError:
+    try:
+        from os_protocol import OSProtocols
+    except ImportError:
+        OSProtocols = None
 
 # Compiled regex patterns for ultra-fast matching
 _RE_PAUSE = re.compile(r'^(?:media\s+)?(pause|stop)(?:\s+(?:the\s+)?(?:music|media|song|playback))?$', re.I)
