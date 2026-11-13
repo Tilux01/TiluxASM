@@ -522,9 +522,9 @@ def listen(on_recording_done=None) -> str:
     import numpy as np
     import sounddevice as sd
     
-    SILENCE_DURATION = 1.60     # Seconds of trailing silence to finalize recording (relaxed for natural pauses/breaths)
+    SILENCE_DURATION = 0.40     # Seconds of trailing silence to finalize recording (fast speech discovery)
     MAX_DURATION = 60.0         # Max seconds of total recording (supports long dictations)
-    INITIAL_TIMEOUT = 10.0      # Max seconds to wait for speech to begin
+    INITIAL_TIMEOUT = 25.0      # Stays awake 20-30s if user is not speaking before auto-closing
     
     frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
     chunk_sec = 0.10
@@ -532,7 +532,7 @@ def listen(on_recording_done=None) -> str:
     max_silence_chunks = int(SILENCE_DURATION / chunk_sec)
     max_chunks = int(MAX_DURATION / chunk_sec)
     initial_timeout_chunks = int(INITIAL_TIMEOUT / chunk_sec)
-    min_speech_chunks = int(0.50 / chunk_sec)
+    min_speech_chunks = int(0.30 / chunk_sec)
     
     silence_chunks_count = 0
     speech_chunks_count = 0
@@ -556,8 +556,8 @@ def listen(on_recording_done=None) -> str:
                     import sys
                     if "server" in sys.modules:
                         srv = sys.modules["server"]
-                        if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
-                            print("[Voice] Recording aborted by user / abort_flag.")
+                        if hasattr(srv, "brain") and (getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True)):
+                            print("[Voice] Recording aborted by user / widget closed.")
                             return ""
                     
                     rms = float(np.sqrt(np.mean(chunk**2)))

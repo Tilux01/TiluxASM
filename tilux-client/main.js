@@ -437,7 +437,7 @@ function createWakeWindow(showImmediately = true) {
             const req = http.request({
                 hostname: '127.0.0.1',
                 port: 8932,
-                path: '/api/stop',
+                path: '/api/widget_dismiss',
                 method: 'POST'
             });
             req.on('error', () => {});

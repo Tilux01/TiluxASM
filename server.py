@@ -195,8 +195,8 @@ def _on_wake_word():
     exe_path = settings.get("frontend_executable", "npm")
     
     WIDGET_STATE = {
-        "main_text": "Tilux",
-        "sub_text": "Speaking...",
+        "main_text": "Speaking...",
+        "sub_text": wake_greeting if wake_greeting else "",
         "speak_text": "",
         "speak_id": 0,
         "is_speaking": True,
@@ -221,10 +221,10 @@ def _on_wake_word():
         brain.abort_flag = False
         try:
             # 1. Immediately speak tone wake greeting
-            if wake_greeting:
+            if wake_greeting and is_voice_assistant_active and not brain.abort_flag:
                 print(f"[Server] Speaking tone wake greeting: '{wake_greeting}'")
                 WIDGET_STATE["main_text"] = "Speaking..."
-                WIDGET_STATE["sub_text"] = ""
+                WIDGET_STATE["sub_text"] = wake_greeting
                 WIDGET_STATE["is_speaking"] = True
                 WIDGET_STATE["speak_id"] = time.time()
                 
@@ -238,10 +238,14 @@ def _on_wake_word():
                     speak(wake_greeting)
                     
                 WIDGET_STATE["is_speaking"] = False
+                WIDGET_STATE["sub_text"] = ""
                 time.sleep(0.15)
 
-            consecutive_empty = 0
-            while not brain.abort_flag:
+            while not brain.abort_flag and is_voice_assistant_active:
+                if my_proc and my_proc.poll() is not None:
+                    print("[Server] Widget process closed by user. Terminating voice assistant.")
+                    break
+
                 WIDGET_STATE["main_text"] = "Listening..."
                 WIDGET_STATE["sub_text"] = ""
                 WIDGET_STATE["is_speaking"] = False
@@ -255,19 +259,15 @@ def _on_wake_word():
                 text = listen(on_recording_done=on_speech_captured)
                 print(f"[Server] Voice capture complete. Recognized text: '{text}'")
                 
-                if brain.abort_flag:
+                if brain.abort_flag or not is_voice_assistant_active:
                     break
                     
                 if not text:
-                    consecutive_empty += 1
-                    if consecutive_empty >= 2:
-                        break
-                    WIDGET_STATE["main_text"] = "I'm listening..."
-                    time.sleep(0.3)
-                    continue
-                consecutive_empty = 0
+                    # User remained silent for the 25-30s listening timeout
+                    print("[Server] Voice timeout (no speech detected). Exiting awake loop.")
+                    break
                 
-                # Show ONLY the user's voice transcribed text on screen
+                # Show user's transcribed question and initial thinking status
                 WIDGET_STATE["main_text"] = text
                 WIDGET_STATE["sub_text"] = "Thinking..."
                 
@@ -275,15 +275,16 @@ def _on_wake_word():
                 
                 reply_data = brain.process_input(text, [], is_voice=True)
                 
-                if brain.abort_flag:
+                if brain.abort_flag or reply_data.get("aborted") or not is_voice_assistant_active:
                     break
                     
                 reply_text = reply_data.get("reply", "")
                 
-                if reply_text:
+                if reply_text and is_voice_assistant_active and not brain.abort_flag:
                     clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
-                    WIDGET_STATE["sub_text"] = "Speaking..."
-                    # Keep main_text displaying the user's transcribed question (do NOT replace with reply_text)
+                    # Change main_text to "Speaking..." during speech output
+                    WIDGET_STATE["main_text"] = "Speaking..."
+                    WIDGET_STATE["sub_text"] = clean_widget_text
                     WIDGET_STATE["reply_text"] = reply_text
                     WIDGET_STATE["is_speaking"] = True
                     WIDGET_STATE["speak_id"] = time.time()
@@ -299,7 +300,7 @@ def _on_wake_word():
                     
                     WIDGET_STATE["is_speaking"] = False
                     WIDGET_STATE["sub_text"] = ""
-                    # Pause 300ms after speaking before seamlessly listening for the next turn
+                    WIDGET_STATE["main_text"] = "Listening..."
                     time.sleep(0.3)
                 else:
                     break
@@ -307,7 +308,6 @@ def _on_wake_word():
             WIDGET_STATE["main_text"] = ""
             WIDGET_STATE["sub_text"] = ""
             WIDGET_STATE["is_speaking"] = False
-            # Ensure microphone and audio stream have cleanly released before resuming wake word
             time.sleep(0.15)
             is_voice_assistant_active = False
             brain.abort_flag = False
@@ -485,16 +485,58 @@ def stop_audio_process():
         subprocess.run("spd-say -C 2>/dev/null || true", shell=True)
         subprocess.run("pkill -9 spd-say 2>/dev/null || killall -9 spd-say 2>/dev/null || true", shell=True)
 
-@app.route("/api/stop", methods=["POST"])
-def stop_generation():
-    if not verify_request_auth():
-        return jsonify({"error": "Unauthorized"}), 401
+@app.route("/api/widget_dismiss", methods=["GET", "POST"])
+def widget_dismiss():
+    global is_voice_assistant_active, WIDGET_STATE, current_widget_proc
+    print("[Server] Widget dismissed by user! Terminating voice assistant immediately.")
+    is_voice_assistant_active = False
     brain.abort_flag = True
     brain.is_processing = False
     brain.current_status = ""
     brain.current_events = []
+    WIDGET_STATE["main_text"] = ""
+    WIDGET_STATE["sub_text"] = ""
+    WIDGET_STATE["is_speaking"] = False
     stop_audio_process()
     WIDGET_SPEECH_EVENT.set()
+    
+    if current_widget_proc and current_widget_proc.poll() is None:
+        try:
+            current_widget_proc.terminate()
+        except Exception:
+            pass
+            
+    time.sleep(0.1)
+    try:
+        import wake_word
+        wake_word.resume_wake_word()
+    except Exception:
+        pass
+    return jsonify({"status": "dismissed"})
+
+@app.route("/api/stop", methods=["POST"])
+def stop_generation():
+    global is_voice_assistant_active, WIDGET_STATE, current_widget_proc
+    # Allow localhost stop requests unconditionally
+    if not is_direct_localhost() and not verify_request_auth():
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    is_voice_assistant_active = False
+    brain.abort_flag = True
+    brain.is_processing = False
+    brain.current_status = ""
+    brain.current_events = []
+    WIDGET_STATE["main_text"] = ""
+    WIDGET_STATE["sub_text"] = ""
+    WIDGET_STATE["is_speaking"] = False
+    stop_audio_process()
+    WIDGET_SPEECH_EVENT.set()
+
+    if current_widget_proc and current_widget_proc.poll() is None:
+        try:
+            current_widget_proc.terminate()
+        except Exception:
+            pass
 
     # Record Stopped by user in active session history if awaiting AI response
     try:
@@ -506,11 +548,12 @@ def stop_generation():
     except Exception as e:
         print(f"[Stop Generation History Error] {e}")
 
-    # Only resume wake word if voice assistant thread is NOT currently active;
-    # if it IS active, background_task's finally: block will cleanly release the mic and resume it.
-    if not is_voice_assistant_active:
+    time.sleep(0.1)
+    try:
         import wake_word
         wake_word.resume_wake_word()
+    except Exception:
+        pass
     return jsonify({"status": "stopped"})
 
 

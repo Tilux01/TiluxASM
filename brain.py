@@ -998,7 +998,7 @@ class Brain:
                     self.abort_flag = False
                     self._clean_aborted_history()
                     self.current_status = ""
-                    return {"reply": "Stopped by user.", "steps": steps_taken, "events": self.current_events}
+                    return {"reply": "" if is_voice else "Stopped by user.", "aborted": True, "steps": steps_taken, "events": self.current_events}
 
                     
                 loop_count += 1
@@ -1234,7 +1234,8 @@ class Brain:
                         if self.abort_flag:
                             self.abort_flag = False
                             self._clean_aborted_history()
-                            return {"reply": "Stopped by user.", "steps": steps_taken, "events": list(self.current_events)}
+                            self.current_status = ""
+                            return {"reply": "" if is_voice else "Stopped by user.", "aborted": True, "steps": steps_taken, "events": list(self.current_events)}
                         function_name = tool_call.function.name
                         try:
                             args = json.loads(tool_call.function.arguments)

@@ -131,17 +131,18 @@
 
         #sub-text {
             font-size: 13px;
-            font-weight: 300;
-            font-style: italic;
+            font-weight: 400;
             letter-spacing: 0.3px;
             color: #d1d5db;
             text-shadow: 0 1px 3px rgba(0,0,0,0.8);
             display: -webkit-box;
-            -webkit-line-clamp: 1;
+            -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
-            opacity: 0.8;
-            min-height: 15px;
+            opacity: 0.9;
+            min-height: 18px;
+            padding: 0 4px;
+            transition: color 0.15s ease;
         }
     </style>
 </head>
@@ -178,11 +179,12 @@
 
             try {
                 if (navigator.sendBeacon) {
-                    navigator.sendBeacon('http://127.0.0.1:8932/api/stop');
+                    navigator.sendBeacon('http://127.0.0.1:8932/api/widget_dismiss');
                 }
             } catch(err) {}
 
             try {
+                fetch('http://127.0.0.1:8932/api/widget_dismiss', { method: 'POST', keepalive: true }).catch(() => {});
                 fetch('http://127.0.0.1:8932/api/stop', { method: 'POST', keepalive: true }).catch(() => {});
             } catch(err) {}
 
@@ -324,37 +326,45 @@
                     }, 2500);
                 }
 
-                // Only show voice status or user transcribed speech in main-text (never show AI response text)
-                if (data.main_text !== fullMainText) {
-                    fullMainText = data.main_text;
-                    if (mainEl) mainEl.innerText = fullMainText;
-                }
-
-                let sub = data.sub_text || "";
-                if (data.is_speaking || sub === "Speaking...") {
-                    sub = "Speaking...";
-                    if (subEl) subEl.style.color = "#c084fc";
-                } else if (sub.toLowerCase().includes("ran a command") || sub.includes("Running:") || sub.includes("Tool:")) {
-                    sub = "Working on it...";
-                    if (subEl) subEl.style.color = "#d1d5db";
+                // 2. Text rendering:
+                // When speaking, main-text changes from user transcription to "Speaking..." and sub-text shows the answer preview
+                if (data.is_speaking || data.main_text === "Speaking...") {
+                    if (mainEl && mainEl.innerText !== "Speaking...") {
+                        mainEl.innerText = "Speaking...";
+                    }
+                    if (subEl) {
+                        subEl.innerText = data.reply_text || data.sub_text || "";
+                        subEl.style.color = "#c084fc";
+                    }
                 } else {
-                    if (subEl) subEl.style.color = "#d1d5db";
+                    if (mainEl && data.main_text !== fullMainText) {
+                        fullMainText = data.main_text;
+                        mainEl.innerText = fullMainText;
+                    }
+                    if (subEl) {
+                        const sub = data.sub_text || "";
+                        subEl.innerText = sub;
+                        const sLower = sub.toLowerCase();
+                        if (sLower.includes("bash:") || sLower.includes("running:") || sLower.includes("smart routing") || sLower.includes("executing") || sLower.includes("automating")) {
+                            subEl.style.color = "#38bdf8"; // Bright cyan for active tool commands
+                        } else if (sLower.includes("thinking") || sLower.includes("transcribing")) {
+                            subEl.style.color = "#a78bfa"; // Soft purple for thinking
+                        } else {
+                            subEl.style.color = "#d1d5db";
+                        }
+                    }
                 }
-                const subEl = document.getElementById('sub-text');
-                if (subEl) subEl.innerText = sub;
 
                 const orb = document.getElementById('orb');
                 if (orb) {
-                    if (data.main_text === "Listening...") {
-                        orb.style.animationDuration = "1.5s";
-                    } else if (data.main_text === "Transcribing..." || data.main_text === "Processing..." || data.sub_text === "Thinking..." || data.sub_text === "Transcribing voice...") {
-                        orb.style.animationDuration = "0.4s";
-                    } else if (data.is_speaking) {
+                    if (data.is_speaking || data.main_text === "Speaking...") {
                         orb.style.animationDuration = "0.7s";
-                    } else if (data.sub_text) {
-                        orb.style.animationDuration = "0.8s";
+                    } else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
+                        orb.style.animationDuration = "1.8s";
+                    } else if (data.main_text === "Transcribing..." || (data.sub_text && (data.sub_text.includes("Thinking") || data.sub_text.includes("Bash:") || data.sub_text.includes("Executing")))) {
+                        orb.style.animationDuration = "0.4s";
                     } else {
-                        orb.style.animationDuration = "2.5s";
+                        orb.style.animationDuration = "2.2s";
                     }
                 }
             } catch(e) {}

@@ -97,6 +97,9 @@ class WakeWordEngine:
             "til looks", "til locks", "til lux",
             "still looks",
             "tell looks",
+            "she looks",
+            "it looks",
+            "tie looks"
             "they tell looks", "they tell us",
             "tea locks", "tee locks", "tie locks",
             "tea looks", "tee looks", "tie looks",
