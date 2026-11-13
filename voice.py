@@ -37,7 +37,14 @@ _speech_lock = threading.Lock()
 _stop_speech_event = threading.Event()
 _active_audio_proc = None
 _is_tts_playing = False
-_last_spoken_phrases = collections.deque(maxlen=10)
+_last_tts_end_time = 0.0
+_last_spoken_phrases = collections.deque(maxlen=15)
+
+def mark_tts_finished():
+    """Records the exact wall-clock time that TTS audio finished playback."""
+    global _last_tts_end_time
+    import time
+    _last_tts_end_time = time.time()
 
 def is_speech_active() -> bool:
     """Returns True if TTS is actively playing or synthesizing audio."""
@@ -51,16 +58,17 @@ def is_speech_active() -> bool:
 def register_spoken_text(text: str):
     """Registers text that was spoken aloud to guard against microphone acoustic self-hearing."""
     global _last_spoken_phrases
-    import re
+    import re, time
     if not text:
         return
+    now = time.time()
     clean = re.sub(r'[^a-zA-Z0-9\s]', '', text.lower()).strip()
     if clean and len(clean) >= 3:
-        _last_spoken_phrases.append(clean)
+        _last_spoken_phrases.append((clean, now))
         for part in re.split(r'[.!?\n]', text):
             p_clean = re.sub(r'[^a-zA-Z0-9\s]', '', part.lower()).strip()
             if p_clean and len(p_clean) >= 4:
-                _last_spoken_phrases.append(p_clean)
+                _last_spoken_phrases.append((p_clean, now))
 
 def _split_into_sentences(text: str) -> list:
     """Splits text into natural sentence-sized chunks for instant streaming speech."""
@@ -226,6 +234,7 @@ class SpeechStreamer:
             sd.stop()
         except Exception:
             pass
+        mark_tts_finished()
 
     def _run(self):
         import sounddevice as sd
@@ -236,65 +245,72 @@ class SpeechStreamer:
         voice_obj = get_piper_voice(tts_voice)
         sample_rate = getattr(voice_obj.config, "sample_rate", 22050) if voice_obj else 22050
 
-        while not self.stop_event.is_set() and not _stop_speech_event.is_set() and self.gen_id == _speech_generation_id:
-            try:
-                sentence = self.queue.get(timeout=0.05)
-            except Empty:
-                continue
-            if sentence is None:
-                break
-            if not sentence.strip():
-                continue
-
-            if "server" in sys.modules:
-                srv = sys.modules["server"]
-                if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
-                    break
-
-            clean = clean_speech_text(sentence)
-            if not clean:
-                continue
-
-            if self.on_chunk_start and callable(self.on_chunk_start):
+        try:
+            while not self.stop_event.is_set() and not _stop_speech_event.is_set() and self.gen_id == _speech_generation_id:
                 try:
-                    self.on_chunk_start(clean)
-                except Exception:
-                    pass
-
-            if voice_obj:
-                chunks = []
-                for chunk in voice_obj.synthesize(clean):
-                    if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
-                        break
-                    chunks.append(chunk.audio_int16_bytes)
-                if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                    sentence = self.queue.get(timeout=0.05)
+                except Empty:
+                    continue
+                if sentence is None:
                     break
-                if chunks:
-                    global _is_tts_playing
-                    _is_tts_playing = True
-                    register_spoken_text(clean)
-                    audio_np = np.frombuffer(b"".join(chunks), dtype=np.int16)
-                    sd.play(audio_np, samplerate=sample_rate)
-                    duration_sec = len(audio_np) / float(sample_rate)
-                    t0 = time.time()
-                    while (time.time() - t0) < duration_sec:
-                        if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
-                            sd.stop()
-                            _is_tts_playing = False
-                            return
-                        if "server" in sys.modules:
-                            srv = sys.modules["server"]
-                            if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
-                                sd.stop()
-                                _is_tts_playing = False
-                                return
-                        time.sleep(0.015)
+                if not sentence.strip():
+                    continue
+
+                if "server" in sys.modules:
+                    srv = sys.modules["server"]
+                    if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
+                        break
+
+                clean = clean_speech_text(sentence)
+                if not clean:
+                    continue
+
+                if self.on_chunk_start and callable(self.on_chunk_start):
                     try:
-                        sd.wait()
+                        self.on_chunk_start(clean)
                     except Exception:
                         pass
-            else:
-                speak_os_fallback(clean)
+
+                if voice_obj:
+                    chunks = []
+                    for chunk in voice_obj.synthesize(clean):
+                        if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                            break
+                        chunks.append(chunk.audio_int16_bytes)
+                    if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                        break
+                    if chunks:
+                        global _is_tts_playing
+                        _is_tts_playing = True
+                        register_spoken_text(clean)
+                        audio_np = np.frombuffer(b"".join(chunks), dtype=np.int16)
+                        sd.play(audio_np, samplerate=sample_rate)
+                        duration_sec = len(audio_np) / float(sample_rate)
+                        t0 = time.time()
+                        while (time.time() - t0) < duration_sec:
+                            if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                                sd.stop()
+                                _is_tts_playing = False
+                                mark_tts_finished()
+                                return
+                            if "server" in sys.modules:
+                                srv = sys.modules["server"]
+                                if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
+                                    sd.stop()
+                                    _is_tts_playing = False
+                                    mark_tts_finished()
+                                    return
+                            time.sleep(0.015)
+                        try:
+                            sd.wait()
+                        except Exception:
+                            pass
+                        mark_tts_finished()
+                else:
+                    speak_os_fallback(clean)
+        finally:
+            _is_tts_playing = False
+            mark_tts_finished()
 
 def speak(text: str):
     """Converts text to speech and plays it with instantaneous sentence-pipelined streaming and zero lag."""
@@ -357,6 +373,7 @@ def speak(text: str):
                         p2.wait()
                     except Exception:
                         pass
+                    mark_tts_finished()
                 asyncio.run(_stream_edge())
             except Exception:
                 if 'p2' in locals() and p2.poll() is None:
@@ -440,18 +457,21 @@ def speak(text: str):
                         pass
 
                 sd.stop()
+                mark_tts_finished()
             except Exception as e:
                 print(f"[Voice] Piper TTS error: {e}. Falling back to OS speech...")
                 terminate_active_audio()
                 speak_os_fallback(clean_text)
             finally:
                 _is_tts_playing = False
+                mark_tts_finished()
     except Exception as e:
         print(f"[Voice] Speak error: {e}. Falling back to OS speech...")
         terminate_active_audio()
         speak_os_fallback(clean_text)
     finally:
         _is_tts_playing = False
+        mark_tts_finished()
 
 def speak_os_fallback(text: str) -> bool:
     """Fallback to native OS speech (spd-say / pyttsx3 / say / SAPI)."""
@@ -475,6 +495,8 @@ def speak_os_fallback(text: str) -> bool:
     except Exception as e:
         print(f"[Voice] OS speech fallback error: {e}")
         return False
+    finally:
+        mark_tts_finished()
 
 def generate_audio_buffer(text: str, voice: str, speed: str) -> bytes:
     """Generates TTS audio and returns raw MP3 bytes (no playback)."""
@@ -484,7 +506,9 @@ def generate_audio_buffer(text: str, voice: str, speed: str) -> bytes:
 
 def terminate_active_audio():
     """Immediately stops all audio playback, kills sounddevice buffer, and aborts speech threads."""
-    global _active_audio_proc, _speech_generation_id, _active_speech_streamer
+    global _active_audio_proc, _speech_generation_id, _active_speech_streamer, _is_tts_playing
+    _is_tts_playing = False
+    mark_tts_finished()
     with _speech_lock:
         _speech_generation_id += 1
         _stop_speech_event.set()
@@ -674,23 +698,39 @@ def _filter_echo(text: str) -> str:
     """Verifies that recognized text is NOT an acoustic echo of the assistant's own recent speech."""
     if not text:
         return ""
-    import re
+    import re, time
     norm_transcribed = re.sub(r'[^a-zA-Z0-9\s]', '', text.lower()).strip()
     if not norm_transcribed:
         return ""
     trans_words = set(norm_transcribed.split())
-    for sp in list(_last_spoken_phrases):
+    now = time.time()
+    for item in list(_last_spoken_phrases):
+        if isinstance(item, tuple):
+            sp, sp_time = item
+            if (now - sp_time) > 4.5:
+                continue # Spoken too long ago to be an acoustic echo
+        else:
+            sp = str(item)
+            
         if not sp:
             continue
         sp_words = set(sp.split())
-        # Direct containment check
-        if norm_transcribed == sp or norm_transcribed in sp or sp in norm_transcribed:
-            print(f"[Voice Echo Guard] 🛡️ Filtered self-echo (match with recent speech '{sp}'): '{text}'")
+        # 1. Exact match with recent speech
+        if norm_transcribed == sp:
+            print(f"[Voice Echo Guard] 🛡️ Filtered self-echo (exact match with recent speech '{sp}'): '{text}'")
             return ""
-        # High word-set overlap check (> 70%)
-        if trans_words and sp_words:
+        # 2. Transcribed text completely contains the recent spoken phrase (e.g. mic picked up whole response)
+        if sp in norm_transcribed and len(sp.split()) >= 2:
+            print(f"[Voice Echo Guard] 🛡️ Filtered self-echo (contains recent speech '{sp}'): '{text}'")
+            return ""
+        # 3. Transcribed text is contained in spoken phrase (require >=3 words so common replies like 'yes'/'no' are never blocked)
+        if norm_transcribed in sp and len(norm_transcribed.split()) >= 3:
+            print(f"[Voice Echo Guard] 🛡️ Filtered self-echo (contained in recent speech '{sp}'): '{text}'")
+            return ""
+        # 4. High word-set overlap check (> 70%) for multi-word phrases
+        if len(trans_words) >= 3 and sp_words:
             overlap = len(trans_words.intersection(sp_words)) / float(len(trans_words))
-            if overlap >= 0.70 and len(trans_words) >= 2:
+            if overlap >= 0.70:
                 print(f"[Voice Echo Guard] 🛡️ Filtered self-echo ({overlap*100:.0f}% word overlap with '{sp}'): '{text}'")
                 return ""
     return text
@@ -704,14 +744,14 @@ def listen(on_recording_done=None) -> str:
     import time
     # 1. Acoustic Self-Hearing Guard: Wait only if TTS audio is actively playing on speakers
     t_wait_start = time.time()
-    waited_for_tts = False
-    while is_speech_active() and (time.time() - t_wait_start) < 2.5:
-        waited_for_tts = True
+    while is_speech_active() and (time.time() - t_wait_start) < 3.0:
         time.sleep(0.04)
 
-    # 2. Reverb Settle Time: only needed if TTS was just outputting sound to speakers
-    if waited_for_tts:
-        time.sleep(0.10)
+    # 2. Reverb & sound card DMA output buffer settle guard
+    now = time.time()
+    since_tts = now - _last_tts_end_time
+    if since_tts < 0.40:
+        time.sleep(max(0.05, 0.40 - since_tts))
         
     sample_rate = 16000
     print("[Voice] Listening for user speech...")
@@ -721,10 +761,10 @@ def listen(on_recording_done=None) -> str:
     import numpy as np
     import sounddevice as sd
     
-    SILENCE_DURATION = 0.45     # Seconds of trailing silence to finalize recording (~450ms for snappy turn-taking)
+    SILENCE_DURATION = 0.85     # Seconds of trailing silence to finalize recording (~850ms natural pause)
     MAX_RECORD_DURATION = 15.0  # Max seconds for a single voice utterance (avoids giant audio buffers)
     INITIAL_TIMEOUT = 25.0      # Stays awake 25s if user hasn't started speaking before auto-closing
-    POST_SPEECH_TIMEOUT = 1.0   # Forceful cutoff 1.0s after user stops speaking even if room has ambient hum
+    POST_SPEECH_TIMEOUT = 1.8   # Safety cutoff 1.8s after user stops speaking even if room has ambient hum
     
     frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
     chunk_sec = 0.10
@@ -732,7 +772,7 @@ def listen(on_recording_done=None) -> str:
     max_silence_chunks = int(SILENCE_DURATION / chunk_sec)
     max_chunks = int(MAX_RECORD_DURATION / chunk_sec)
     initial_timeout_chunks = int(INITIAL_TIMEOUT / chunk_sec)
-    min_speech_chunks = int(0.20 / chunk_sec)
+    min_speech_chunks = int(0.35 / chunk_sec) # At least 3-4 chunks (~350ms) of sustained speech
     
     silence_chunks_count = 0
     speech_chunks_count = 0
@@ -750,6 +790,12 @@ def listen(on_recording_done=None) -> str:
     try:
         with noalsaerr():
             with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
+                # Discard initial capture buffer frames (flushes ADC click / sound card startup transient)
+                for _ in range(2):
+                    try:
+                        stream.read(frames_per_chunk)
+                    except Exception:
+                        pass
 
                 for chunk_idx in range(max_chunks):
                     chunk, overflowed = stream.read(frames_per_chunk)
@@ -800,6 +846,14 @@ def listen(on_recording_done=None) -> str:
                             last_speech_time = now
                         else:
                             silence_chunks_count += 1
+                            # Transient noise / click rejection:
+                            # If we triggered on a brief spike (< min_speech_chunks) and silence immediately resumes for 3 chunks (~300ms),
+                            # it was an isolated room blip or echo tail, NOT human speech. Reset and continue waiting!
+                            if speech_chunks_count < min_speech_chunks and silence_chunks_count >= 3:
+                                has_spoken = False
+                                speech_chunks_count = 0
+                                silence_chunks_count = 0
+                                audio_buffer = audio_buffer[-2:]
                             
                     # 3. Cutoff when speech is complete
                     if has_spoken and speech_chunks_count >= min_speech_chunks:
@@ -832,6 +886,11 @@ def listen(on_recording_done=None) -> str:
             
         audio_np = np.concatenate(audio_buffer)
 
+        # Discard audio if total captured length is too short to be speech (< 0.35s)
+        if len(audio_np) < int(sample_rate * 0.35):
+            print(f"[Voice] Audio segment too brief ({len(audio_np)/sample_rate:.2f}s). Ignoring noise blip.")
+            return ""
+
         # Abort if user cancelled during recording
         import sys
         if "server" in sys.modules:
@@ -840,9 +899,18 @@ def listen(on_recording_done=None) -> str:
                 print("[Voice] Transcription cancelled by abort_flag.")
                 return ""
 
+        # Hallucination filter for empty audio or trailing noise
+        GENERIC_HALLUCINATIONS = {
+            ".", "..", "...", "you", "Thank you.", "Thank you!", "Thank you very much.",
+            "Bye.", "Goodbye.", "Thank you for watching.", "Thanks for watching!",
+            "Subtitles by", "Subscribe", "Please subscribe"
+        }
+
         # 1. Ultra-Fast Groq Cloud Whisper (~100-300ms on Groq LPUs)
         groq_text = transcribe_groq_whisper(audio_np, sample_rate)
         if groq_text:
+            if groq_text in GENERIC_HALLUCINATIONS:
+                return ""
             return _filter_echo(groq_text)
 
         # 2. Fast Cloud Speech Recognition Fallback (Google STT ~350ms)
@@ -855,7 +923,7 @@ def listen(on_recording_done=None) -> str:
                 text = r.recognize_google(audio_data, language="en-US").strip()
             except Exception:
                 text = r.recognize_google(audio_data, language="en-NG").strip()
-            if text:
+            if text and text not in GENERIC_HALLUCINATIONS:
                 print(f"[Voice] Google STT transcript: '{text}'")
                 return _filter_echo(text)
         except Exception as fast_err:
@@ -871,6 +939,8 @@ def listen(on_recording_done=None) -> str:
             language="en"
         )
         text = " ".join([segment.text for segment in segments]).strip()
+        if text in GENERIC_HALLUCINATIONS:
+            return ""
         print(f"[Voice] Faster-whisper transcript: '{text}'")
         return _filter_echo(text)
     except Exception as e:

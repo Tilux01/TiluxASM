@@ -266,14 +266,22 @@ def _on_wake_word(initial_phrase=""):
                 WIDGET_STATE["is_speaking"] = True
                 WIDGET_STATE["speak_id"] = time.time()
                 
+                try:
+                    import voice
+                    voice.register_spoken_text(wake_greeting)
+                except Exception:
+                    pass
                 speak(wake_greeting)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["sub_text"] = ""
                 WIDGET_STATE["main_text"] = "Listening..."
-                time.sleep(0.20)
+                time.sleep(0.40)
 
             first_turn = True
+            awake_session_start = time.time()
+            MAX_AWAKE_IDLE_SECONDS = 25.0
+
             while not brain.abort_flag and is_voice_assistant_active:
                 if my_proc and my_proc.poll() is not None:
                     print("[Server] Widget process closed by user. Terminating voice assistant.")
@@ -302,9 +310,21 @@ def _on_wake_word(initial_phrase=""):
                     break
                     
                 if not text:
-                    # User remained silent for the 25-30s listening timeout
-                    print("[Server] Voice timeout (no speech detected). Exiting awake loop.")
-                    break
+                    # User was either silent, or a brief room noise/echo blip was ignored
+                    elapsed_idle = time.time() - awake_session_start
+                    if elapsed_idle < MAX_AWAKE_IDLE_SECONDS and is_voice_assistant_active and not brain.abort_flag:
+                        print(f"[Server] No command recognized (idle {elapsed_idle:.1f}s / {MAX_AWAKE_IDLE_SECONDS:.0f}s). Continuing to listen...")
+                        WIDGET_STATE["main_text"] = "Listening..."
+                        WIDGET_STATE["sub_text"] = ""
+                        WIDGET_STATE["is_speaking"] = False
+                        time.sleep(0.10)
+                        continue
+                    else:
+                        print(f"[Server] Voice session idle timeout reached ({elapsed_idle:.1f}s). Exiting awake loop.")
+                        break
+
+                # Valid user speech recognized - reset idle timeout timer for follow-up turns
+                awake_session_start = time.time()
                 
                 # Show user's transcribed question and initial thinking status
                 WIDGET_STATE["main_text"] = text
