@@ -24,7 +24,13 @@ except ImportError as e:
 if "__compiled__" in globals():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(base_dir, "playwright_browsers")
-import credentials
+try:
+    import vault as credentials
+except ImportError:
+    try:
+        import credentials
+    except ImportError:
+        credentials = None
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import threading

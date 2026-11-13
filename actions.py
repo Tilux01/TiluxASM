@@ -234,7 +234,16 @@ def generate_image(prompt: str) -> str:
     import uuid
     import base64
     import urllib.request
-    from credentials import get_credential
+    try:
+        from vault import get_credential
+        import vault as credentials
+    except ImportError:
+        try:
+            from credentials import get_credential
+            import credentials
+        except ImportError:
+            get_credential = lambda k: os.getenv(k)
+            credentials = None
 
     proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app").rstrip("/")
     direct_key = get_credential("NANOGPT_API_KEY") or get_credential("GEMINI_API_KEY") or os.getenv("NANOGPT_API_KEY") or os.getenv("GEMINI_API_KEY")
@@ -250,7 +259,7 @@ def generate_image(prompt: str) -> str:
     # 1. Try secure proxy endpoint first
     res_data = None
     try:
-        client_secret = credentials.get_credential("TILUX_CLIENT_SECRET") or os.getenv("TILUX_CLIENT_SECRET", "tilux_sec_994b7e8832a1df04")
+        client_secret = (credentials.get_credential("TILUX_CLIENT_SECRET") if credentials and hasattr(credentials, "get_credential") else None) or os.getenv("TILUX_CLIENT_SECRET", "tilux_sec_994b7e8832a1df04")
         proxy_endpoint = f"{proxy_url}/api/v1/images/generations"
         req = urllib.request.Request(
             proxy_endpoint,
@@ -374,7 +383,13 @@ def remove_image_background(image_path_or_url: str, output_path: str = None) -> 
     import os
     import uuid
     import urllib.request
-    from credentials import get_credential
+    try:
+        from vault import get_credential
+    except ImportError:
+        try:
+            from credentials import get_credential
+        except ImportError:
+            get_credential = lambda k: os.getenv(k)
 
     if not output_path:
         upload_dir = os.path.join(os.path.dirname(__file__), "static", "uploads")
@@ -606,7 +621,7 @@ def execute_category_task(category: str, payload_json: str = "{}") -> str:
     if not os.path.exists(script_path):
         return f"Error: Category executor script {script_name} not found."
         
-    python_bin = "./venv/bin/python" if os.path.exists("./venv/bin/python") else "python3"
+    python_bin = sys.executable if sys.executable else ("./venv/bin/python" if os.path.exists("./venv/bin/python") else "python3")
     try:
         res = subprocess.run([python_bin, script_path, payload_json], capture_output=True, text=True, timeout=30)
         return res.stdout.strip() or res.stderr.strip() or "Category task executed successfully."

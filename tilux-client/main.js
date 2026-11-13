@@ -177,24 +177,47 @@ async function setupAndRunBackend() {
             TILUX_USER_DATA_DIR: backendCwd,
             PYTHONPATH: app.isPackaged ? `${resourcesBackend}${path.delimiter}${process.env.PYTHONPATH || ''}` : (process.env.PYTHONPATH || '')
         });
+        // Write persistent startup logs to userData/backend/backend_startup.log
+        const logFilePath = path.join(backendCwd, 'backend_startup.log');
+        let logStream = null;
         try {
+            logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+            logStream.write(`\n=== Launch ${new Date().toISOString()} ===\n`);
+            logStream.write(`pyExe: ${pyExe}\n`);
+            logStream.write(`spawnArgs: ${JSON.stringify(spawnArgs)}\n`);
+            logStream.write(`cwd: ${backendCwd}\n`);
+        } catch (_) {}
+
+        try {
+            // NEVER use shell: true on Windows when executing a binary executable!
+            // When shell: true is used, cmd.exe /c fails on paths with spaces (e.g. C:\Program Files)
             pyProc = spawn(pyExe, spawnArgs, { 
                 cwd: backendCwd, 
-                shell: process.platform === 'win32',
+                shell: false,
+                windowsHide: true,
                 env: customEnv
             });
             console.log('Python backend spawned successfully.');
+            if (logStream) logStream.write(`Spawned PID: ${pyProc.pid}\n`);
             pyProc.stdout.on('data', (data) => {
                 console.log(`Python: ${data.toString()}`);
+                if (logStream) logStream.write(`[STDOUT] ${data.toString()}`);
             });
             pyProc.stderr.on('data', (data) => {
                 console.error(`Python Error: ${data.toString()}`);
+                if (logStream) logStream.write(`[STDERR] ${data.toString()}`);
             });
             pyProc.on('error', (err) => {
                 console.error('Failed to spawn Python process:', err);
+                if (logStream) logStream.write(`[ERROR] ${err.stack || err.message}\n`);
+            });
+            pyProc.on('close', (code) => {
+                console.log(`Python process closed with code ${code}`);
+                if (logStream) logStream.write(`[CLOSE] Process exited with code ${code}\n`);
             });
         } catch (e) {
             console.error('Process spawn exception:', e);
+            if (logStream) logStream.write(`[EXCEPTION] ${e.stack || e.message}\n`);
         }
     } else {
         console.log('Python backend is already running on port 8932. Reusing active process.');
@@ -233,6 +256,7 @@ function createWindow () {
     const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
     const iconPath = path.join(__dirname, 'src', iconName);
     const appIcon = nativeImage.createFromPath(iconPath);
+    const isDebugMode = process.argv.includes('--debug') || process.env.TILUX_DEBUG === '1';
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
@@ -242,7 +266,7 @@ function createWindow () {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: true, // required for ipcRenderer in loading.html
             contextIsolation: false,
-            devTools: false // Completely disables DevTools / console
+            devTools: true // Enabled so developer can pass --debug to inspect
         },
         autoHideMenuBar: true,
         title: "Tilux",
@@ -257,24 +281,28 @@ function createWindow () {
         mainWindow.setIcon(appIcon);
     }
 
-    // Intercept and block DevTools and view-source keyboard shortcuts
-    mainWindow.webContents.on('before-input-event', (event, input) => {
-        const key = (input.key || '').toLowerCase();
-        const isDevToolsShortcut = 
-            key === 'f12' ||
-            (input.control && input.shift && (key === 'i' || key === 'j' || key === 'c')) ||
-            (input.meta && input.alt && (key === 'i' || key === 'j' || key === 'c')) ||
-            (input.control && key === 'u');
-        
-        if (isDevToolsShortcut) {
-            event.preventDefault();
-        }
-    });
+    if (isDebugMode) {
+        mainWindow.webContents.openDevTools();
+    } else {
+        // Intercept and block DevTools and view-source keyboard shortcuts in production
+        mainWindow.webContents.on('before-input-event', (event, input) => {
+            const key = (input.key || '').toLowerCase();
+            const isDevToolsShortcut = 
+                key === 'f12' ||
+                (input.control && input.shift && (key === 'i' || key === 'j' || key === 'c')) ||
+                (input.meta && input.alt && (key === 'i' || key === 'j' || key === 'c')) ||
+                (input.control && key === 'u');
+            
+            if (isDevToolsShortcut) {
+                event.preventDefault();
+            }
+        });
 
-    // Failsafe: if DevTools somehow opens, close it immediately
-    mainWindow.webContents.on('devtools-opened', () => {
-        mainWindow.webContents.closeDevTools();
-    });
+        // Failsafe: if DevTools somehow opens, close it immediately
+        mainWindow.webContents.on('devtools-opened', () => {
+            mainWindow.webContents.closeDevTools();
+        });
+    }
 
     // Open any external web links in system browser, never inside the Electron window
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {

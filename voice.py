@@ -371,7 +371,10 @@ def get_groq_client():
         return _cached_groq_client
     import os
     try:
-        from credentials import get_credential
+        try:
+            from vault import get_credential
+        except ImportError:
+            from credentials import get_credential
         groq_key = get_credential("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
     except Exception:
         groq_key = os.getenv("GROQ_API_KEY")

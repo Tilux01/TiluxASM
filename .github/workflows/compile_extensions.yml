@@ -26,59 +26,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Compile 3.11
+      - name: Compile Extensions (Python 3.11)
         shell: bash
         run: |
           python -m pip install --upgrade pip nuitka
           pip install -r requirements.txt || true
           for mod in brain.py sfdcr.py vault.py actions.py cloud_bridge.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
             if [ -f "$mod" ]; then
-              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
-            fi
-          done
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Compile 3.12
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt || true
-          for mod in brain.py sfdcr.py vault.py actions.py cloud_bridge.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
-            if [ -f "$mod" ]; then
-              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
-            fi
-          done
-
-      - name: Setup Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Compile 3.13
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt || true
-          for mod in brain.py sfdcr.py vault.py actions.py cloud_bridge.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
-            if [ -f "$mod" ]; then
-              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
-            fi
-          done
-
-      - name: Setup Python 3.14
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-      - name: Compile 3.14
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip nuitka
-          pip install -r requirements.txt || true
-          for mod in brain.py sfdcr.py vault.py actions.py cloud_bridge.py usage_tracker.py executors/file_executor.py executors/media_executor.py executors/messaging_executor.py; do
-            if [ -f "$mod" ]; then
-              python -m nuitka --module "$mod" --enable-plugin=anti-bloat || true
+              out_dir="$(dirname "$mod")"
+              python -m nuitka --module "$mod" --enable-plugin=anti-bloat --output-dir="$out_dir" || true
             fi
           done
 
@@ -104,11 +60,16 @@ jobs:
               "server.py", "install.py", "autostart.py", "voice.py",
               "wake_word.py", "history_manager.py", "memory.py", "tunnel_manager.py",
               "requirements.txt", "settings.json", "user_personal.json", "README.md",
-              "wake_greetings.json", "voices.json"
+              "wake_greetings.json", "voices.json", "credentials.py"
           ]
           for f in base_runtime_files:
               if os.path.exists(f):
                   shutil.copy2(f, dist_dir)
+
+          # Copy executors python sources as fallbacks
+          if os.path.exists("executors"):
+              for ef in glob.glob("executors/*.py"):
+                  shutil.copy2(ef, os.path.join(dist_dir, "executors"))
 
           # 2. Copy static and templates directories
           for d in ["static", "templates"]:
@@ -146,7 +107,7 @@ jobs:
               except Exception as pe:
                   print(f"[CI Dist Build] Warning: Piper download error: {pe}")
 
-          # 3. Copy OS-specific compiled binaries ONLY
+          # 3. Copy OS-specific compiled binaries
           if is_win:
               bin_pattern = "*.pyd"
               exec_pattern = "executors/*.pyd"
@@ -166,16 +127,22 @@ jobs:
               "executors/media_executor", "executors/messaging_executor"
           ]
 
-          # Ensure no uncompiled proprietary .py files are copied
+          # Ensure no uncompiled proprietary .py files are copied if binary exists
           for mod in proprietary_modules:
-              py_file = os.path.join(dist_dir, f"{mod}.py")
-              if os.path.exists(py_file):
-                  os.remove(py_file)
+              mod_dir = os.path.dirname(mod)
+              mod_base = os.path.basename(mod)
+              target_sub = os.path.join(dist_dir, mod_dir) if mod_dir else dist_dir
+              bin_ext = ".pyd" if is_win else ".so"
+              has_bin = any(f.startswith(mod_base) and f.endswith(bin_ext) for f in os.listdir(target_sub)) if os.path.exists(target_sub) else False
+              if has_bin:
+                  py_file = os.path.join(dist_dir, f"{mod}.py")
+                  if os.path.exists(py_file):
+                      os.remove(py_file)
 
           # Purge any leaked test files, rules or configs from the bundle
           banned_items = [
               "parse_linkedin.py", "play_music.py", "database.rules.json",
-              "firebase.json", ".env", "test_sfdcr.so", "credentials.py",
+              "firebase.json", ".env", "test_sfdcr.so",
               "firebase_sync.py", "diagnose_windows.bat", "diagnose_windows.py"
           ]
           for item in banned_items:
@@ -202,7 +169,7 @@ jobs:
           rm -f python_embed.zip
 
           # Enable site-packages & local imports in python311._pth
-          printf "python311.zip\r\n.\r\n..\r\nimport site\r\n" > tilux_engine_dist/runtime/python311._pth
+          printf "python311.zip\r\n.\r\nLib\\\\site-packages\r\nLib/site-packages\r\n..\r\nimport site\r\n" > tilux_engine_dist/runtime/python311._pth
 
           # Install pip into embedded Python
           curl -fsSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py
