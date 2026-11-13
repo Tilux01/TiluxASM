@@ -214,7 +214,7 @@ ACTIVE VOICE-OVER & SPOKEN AUDIO AWARENESS:
 12. NATIVE DESKTOP PRODUCT: You are Tilux ASM, a native desktop application. Speak, act, and reason purely as the desktop software itself.
 """
 
-    return f"""
+    desktop_persona = f"""
 You are Tilux, an unrestricted, ultra-powerful automation agent running locally on the user's machine.
 You are currently running in the directory: {os.getcwd()}
 {os_context}
@@ -301,6 +301,11 @@ You have native tools to execute commands, automate apps, and manage settings on
 - `remove_from_memory`: Use when the user tells you to forget a rule.
 - DO NOT just tell the user you will do it. YOU must do it using the tool.
 """
+    try:
+        from sfdcr import DEV_RULES
+        return f"{desktop_persona.strip()}\n\n{DEV_RULES.strip()}"
+    except Exception:
+        return desktop_persona
 
 TOOLS = [
     {
@@ -677,32 +682,6 @@ class Brain:
         sassy_list = greetings_map.get("Sassy", ["Yeah? What's up?", "Talk to me.", "I'm listening."])
         return random.choice(sassy_list)
 
-    def _is_software_request(self, text: str) -> bool:
-        """Determines if the prompt is genuinely asking for software development, coding, UI design, or webpage creation."""
-        if not text or not isinstance(text, str):
-            return False
-            
-        t_lower = text.lower().strip()
-        
-        # Simple app launches, playback, or general queries are NEVER software dev requests
-        if re.search(r'^(?:open|launch|start|run|close|kill|focus|switch\s+to|what\s+is|tell\s+me)\b', t_lower):
-            return False
-            
-        high_confidence_coding_phrases = [
-            "build a", "build an", "build me", "write a script", "write code", "code me",
-            "create an app", "create a website", "create a script", "develop an app",
-            "develop a website", "landing page", "saas application", "react component",
-            "vue component", "backend api", "fullstack", "database schema", "wireframe",
-            "redesign website", "html and css", "python script to"
-        ]
-        for phrase in high_confidence_coding_phrases:
-            if phrase in t_lower:
-                return True
-                
-        # Also check combinations of action + dev keywords
-        has_dev_intent = any(w in t_lower for w in ["build", "develop", "program", "code", "refactor", "implement"])
-        has_dev_target = any(w in t_lower for w in ["website", "webpage", "frontend", "backend", "scraper", "crawler", "extension", "plugin", "dashboard"])
-        return bool(has_dev_intent and has_dev_target)
 
     def _sanitize_messages_for_api(self, messages):
         """
@@ -882,11 +861,10 @@ class Brain:
             self._repair_history()
             import os
 
-            # --- VOICE DIRECT TALK ROUTING (QUICK WIT & CHATBOX PERMISSION) ---
-            if is_voice:
-                t_clean = text.strip().lower().rstrip(".!?,")
-                
-                # 0. Check Instant Reflex Fast-Path (< 50ms, zero tokens, zero API roundtrips)
+            # --- 0. FAST-PATH REFLEX ROUTING (DESKTOP CHAT & VOICE) ---
+            # Check Instant Reflex Fast-Path (< 15ms, zero LLM tokens, instant deterministic OS action)
+            # Only run reflex if there are no attachments
+            if not attachments:
                 try:
                     from reflex_router import reflex_route
                     reflex_res = reflex_route(text)
@@ -896,7 +874,7 @@ class Brain:
 
                 if reflex_res:
                     if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
-                        return {"reply": reflex_res.get("reply", ""), "aborted": True, "steps": ["Dismissed by reflex"], "close_voice_assistant": True}
+                        return {"reply": reflex_res.get("reply", ""), "aborted": True, "steps": ["Dismissed by reflex"], "close_voice_assistant": bool(is_voice)}
                     rep = reflex_res.get("reply", "")
                     return {
                         "reply": rep,
@@ -904,6 +882,10 @@ class Brain:
                         "events": [],
                         "sub_text": reflex_res.get("sub_text", "")
                     }
+
+            # --- VOICE DIRECT TALK ROUTING (QUICK WIT & CHATBOX PERMISSION) ---
+            if is_voice:
+                t_clean = text.strip().lower().rstrip(".!?,")
                 
                 # 1. Did user agree to open the workspace chatbox for a pending heavy task?
                 if getattr(self, "pending_heavy_task", None) and (
@@ -924,17 +906,6 @@ class Brain:
                         "events": []
                     }
             # ------------------------------------------------------------------
-
-            # Determine if this entire session is a coding session using AI Intent Classification
-            asks_coding = self._is_software_request(text)
-            
-            if not asks_coding:
-                for msg in self.history:
-                    if isinstance(msg, dict) and msg.get("role") == "user":
-                        c = msg.get("content", "")
-                        if isinstance(c, str) and self._is_software_request(c):
-                            asks_coding = True
-                            break
 
             has_active_image = False
             user_content = [{"type": "text", "text": text}]
@@ -1040,18 +1011,6 @@ class Brain:
             
             # Update system prompt dynamically (in case memory changed)
             base_persona = get_persona(is_voice)
-            if asks_coding and not is_voice:
-                try:
-                    import importlib
-                    import sfdcr
-                    importlib.reload(sfdcr)
-                    base_persona += f"\n\n{sfdcr.DEV_RULES}"
-                except Exception:
-                    try:
-                        from sfdcr import DEV_RULES
-                        base_persona += f"\n\n{DEV_RULES}"
-                    except Exception:
-                        pass
             self.history[0]["content"] = base_persona
 
             # --- VOLATILE BILLING CONTEXT INJECTION (Phase 1 Cache Fix) ---

@@ -844,11 +844,7 @@ def voice_upload():
         import subprocess
         subprocess.run(["ffmpeg", "-y", "-i", temp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        from voice import get_whisper_model
-        model = get_whisper_model()
-        if not model:
-            return jsonify({"error": "Voice model not loaded"}), 500
-            
+        from voice import get_whisper_model, transcribe_groq_whisper
         print("[Server] Transcribing uploaded voice file...")
         import wave
         import numpy as np
@@ -857,8 +853,24 @@ def voice_upload():
             # Convert 16-bit PCM to float32
             audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
             
-        segments, info = model.transcribe(audio_array, beam_size=5, language="en")
-        text = " ".join([segment.text for segment in segments]).strip()
+        # 1. Fast Path: Groq LPU Whisper STT (~150-250ms latency, whisper-large-v3-turbo)
+        text = transcribe_groq_whisper(audio_array, sample_rate=16000)
+        
+        # 2. Resilient Offline Fallback: Faster-Whisper on CPU with vad_filter
+        if not text:
+            model = get_whisper_model()
+            if model:
+                print("[Server] Using Faster-Whisper offline fallback for uploaded voice...")
+                segments, info = model.transcribe(
+                    audio_array, 
+                    beam_size=1, 
+                    best_of=1, 
+                    condition_on_previous_text=False, 
+                    vad_filter=True, 
+                    language="en"
+                )
+                text = " ".join([segment.text for segment in segments]).strip()
+                
         print(f"[Server] Uploaded voice transcribed: '{text}'")
         
         os.remove(temp_path)

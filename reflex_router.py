@@ -43,6 +43,12 @@ _RE_DAY = re.compile(r'^(?:what\s+day\s+is\s+it|what\s+day\s+of\s+the\s+week\s+i
 _RE_GREETING = re.compile(r'^(?:hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening)(?:\s+tilux|\s+assistant)?$', re.I)
 _RE_IDENTITY = re.compile(r'^(?:who\s+are\s+you|what\s+are\s+you|what(?:\'s|\s+is)\s+your\s+name)$', re.I)
 _RE_EMERGENCY_STOP = re.compile(r'^(?:stop|cancel|shut\s*up|quiet|be\s+quiet|silence)$', re.I)
+_RE_BATTERY = re.compile(r'^(?:what(?:\'s|\s+is)\s+(?:the\s+)?battery(?:\s+level|\s+percentage|\s+status)?|battery(?:\s+percentage|\s+level|\s+status)?|how\s+much\s+battery(?:\s+do\s+i\s+have)?)$', re.I)
+_RE_SYS_STATS = re.compile(r'^(?:system\s+stats|cpu\s+usage|ram\s+usage|memory\s+usage|system\s+performance|how\s+much\s+(?:ram|memory)\s+(?:is\s+free|used)?)$', re.I)
+_RE_DISK = re.compile(r'^(?:disk\s+space|storage|free\s+space|how\s+much\s+(?:disk\s+space|storage)\s+(?:is\s+left|free)?)$', re.I)
+_RE_SCREENSHOT = re.compile(r'^(?:take\s+(?:a\s+)?screenshot|screenshot|screen\s+capture|capture\s+(?:the\s+)?screen)$', re.I)
+_RE_LOCK = re.compile(r'^(?:lock\s+(?:the\s+)?(?:screen|computer|pc)|lock\s+my\s+screen)$', re.I)
+_RE_MATH = re.compile(r'^(?:what(?:\'s|\s+is)|calculate|compute)\s+([\d\.\s\+\-\*\/\(\)\%]+)$', re.I)
 
 # App alias mapping to ensure cross-platform resolution
 _APP_ALIASES = {
@@ -70,6 +76,17 @@ _APP_ALIASES = {
     "slack": "slack",
     "telegram": "telegram",
     "vlc": "vlc",
+    "figma": "figma",
+    "notion": "notion",
+    "obsidian": "obsidian",
+    "postman": "postman",
+    "docker": "docker",
+    "steam": "steam",
+    "zoom": "zoom",
+    "whatsapp": "whatsapp",
+    "obs": "obs",
+    "blender": "blender",
+    "gimp": "gimp",
 }
 
 _SITE_SHORTCUTS = {
@@ -88,6 +105,11 @@ _SITE_SHORTCUTS = {
     "instagram": "https://www.instagram.com",
     "linkedin": "https://www.linkedin.com",
     "tiktok": "https://www.tiktok.com",
+    "maps": "https://maps.google.com",
+    "docs": "https://docs.google.com",
+    "sheets": "https://sheets.google.com",
+    "drive": "https://drive.google.com",
+    "translate": "https://translate.google.com",
 }
 
 def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
@@ -341,5 +363,117 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             "reply": "I am Tilux ASM v1.0, your native desktop automation system. What can I automate for you?",
             "sub_text": "Tilux ASM v1.0"
         }
+
+    # 7. Battery Status
+    if _RE_BATTERY.match(clean):
+        try:
+            import psutil
+            batt = psutil.sensors_battery()
+            if batt:
+                pct = int(batt.percent)
+                status = "charging" if batt.power_plugged else "on battery"
+                return {
+                    "handled": True,
+                    "action": "battery_status",
+                    "reply": f"Battery is at {pct}% ({status}).",
+                    "sub_text": f"Battery: {pct}% ({status})"
+                }
+            else:
+                return {
+                    "handled": True,
+                    "action": "battery_status",
+                    "reply": "No battery detected (desktop AC power).",
+                    "sub_text": "AC Power"
+                }
+        except Exception:
+            pass
+
+    # 8. CPU & RAM System Stats
+    if _RE_SYS_STATS.match(clean):
+        try:
+            import psutil
+            cpu = psutil.cpu_percent(interval=0.04)
+            mem = psutil.virtual_memory()
+            avail_gb = mem.available / (1024**3)
+            return {
+                "handled": True,
+                "action": "system_stats",
+                "reply": f"CPU usage is {cpu:.0f}%, RAM usage is {mem.percent:.0f}% ({avail_gb:.1f} GB available).",
+                "sub_text": f"CPU: {cpu:.0f}% | RAM: {mem.percent:.0f}%"
+            }
+        except Exception:
+            pass
+
+    # 9. Free Disk Space
+    if _RE_DISK.match(clean):
+        try:
+            import shutil
+            total, used, free = shutil.disk_usage(os.path.expanduser("~"))
+            free_gb = free / (1024**3)
+            return {
+                "handled": True,
+                "action": "disk_space",
+                "reply": f"You have {free_gb:.1f} GB of free storage space available.",
+                "sub_text": f"Free: {free_gb:.1f} GB"
+            }
+        except Exception:
+            pass
+
+    # 10. Instant Screenshot
+    if _RE_SCREENSHOT.match(clean):
+        try:
+            from actions import take_screenshot
+            path = take_screenshot()
+            fname = os.path.basename(path) if path else "screenshot"
+            return {
+                "handled": True,
+                "action": "take_screenshot",
+                "reply": "Screenshot captured and saved to Pictures.",
+                "sub_text": f"Screenshot: {fname}"
+            }
+        except Exception as e:
+            print(f"[Reflex] Screenshot notice: {e}")
+
+    # 11. Lock Screen
+    if _RE_LOCK.match(clean):
+        try:
+            import platform, subprocess
+            sys_name = platform.system()
+            if sys_name == "Windows":
+                subprocess.Popen("rundll32.exe user32.dll,LockWorkStation", shell=True)
+            elif sys_name == "Darwin":
+                subprocess.Popen("pmset displaysleepnow", shell=True)
+            else:
+                subprocess.Popen("loginctl lock-session 2>/dev/null || xdg-screensaver lock 2>/dev/null || gnome-screensaver-command -l 2>/dev/null || true", shell=True)
+            return {
+                "handled": True,
+                "action": "lock_screen",
+                "reply": "Screen locked.",
+                "sub_text": "Locked workstation"
+            }
+        except Exception as e:
+            print(f"[Reflex] Lock screen notice: {e}")
+
+    # 12. Safe Deterministic Math Calculator (< 1ms, zero hallucination)
+    math_match = _RE_MATH.match(clean)
+    if math_match:
+        expr = math_match.group(1).strip()
+        if re.match(r'^[\d\.\s\+\-\*\/\(\)\%]+$', expr):
+            try:
+                expr_calc = re.sub(r'(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)', r'(\1 / 100.0 * \2)', expr, flags=re.I)
+                expr_calc = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'(\1 / 100.0)', expr_calc)
+                code = compile(expr_calc, "<math>", "eval")
+                if not code.co_names:
+                    val = eval(code, {"__builtins__": {}}, {})
+                    if isinstance(val, (int, float)):
+                        fmt_val = f"{val:,.4f}".rstrip('0').rstrip('.') if isinstance(val, float) else f"{val:,}"
+                        return {
+                            "handled": True,
+                            "action": "quick_math",
+                            "reply": f"The answer is {fmt_val}.",
+                            "sub_text": f"{expr} = {fmt_val}"
+                        }
+            except Exception:
+                pass
 
     return None

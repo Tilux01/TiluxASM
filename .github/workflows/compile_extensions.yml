@@ -7,6 +7,9 @@ on:
       - main
   workflow_dispatch: # Allows you to trigger the compile manually with a button click
 
+permissions:
+  contents: write
+
 jobs:
   build-extensions:
     name: Build on ${{ matrix.os }}
@@ -289,3 +292,25 @@ jobs:
         with:
           name: Tilux-Installers-${{ matrix.os }}
           path: ./tilux-client/dist/*.*
+
+      - name: Publish Direct to GitHub Release v1.0.0
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: v1.0.0
+          name: "Tilux ASM Official v1.0.0 Launch"
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: |
+            tilux-client/dist/*.exe
+            tilux-client/dist/*.dmg
+            tilux-client/dist/*.deb
+            tilux-client/dist/*.AppImage
+            tilux-client/dist/*.rpm
+            tilux-client/dist/*.pacman
+            tilux-client/dist/*.zip
+            tilux-client/dist/latest*.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
