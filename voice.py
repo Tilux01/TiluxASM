@@ -22,9 +22,34 @@ def noalsaerr():
         yield
 
 import json
-
+import threading
+from queue import Queue, Empty
 import asyncio
 import edge_tts
+
+_speech_generation_id = 0
+_speech_lock = threading.Lock()
+_stop_speech_event = threading.Event()
+_active_audio_proc = None
+
+def _split_into_sentences(text: str) -> list:
+    """Splits text into natural sentence-sized chunks for instant streaming speech."""
+    import re
+    raw_parts = re.split(r'(?<=[.!?\n])\s+', text)
+    sentences = []
+    for part in raw_parts:
+        part = part.strip()
+        if not part:
+            continue
+        if len(part) > 180:
+            subs = re.split(r'(?<=[,;:])\s+', part)
+            for sub in subs:
+                sub = sub.strip()
+                if sub:
+                    sentences.append(sub)
+        else:
+            sentences.append(part)
+    return sentences or [text]
 
 def resolve_piper_path(voice: str) -> str:
     if not voice:
@@ -120,8 +145,8 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
             return b""
 
 def speak(text: str):
-    """Converts text to speech and plays it using Edge TTS (Dynamic Voice/Speed)."""
-    import re
+    """Converts text to speech and plays it with instantaneous sentence-pipelined streaming and zero lag."""
+    import re, sys
     clean_text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
     clean_text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean_text)
     clean_text = re.sub(r'```[\s\S]*?```', '', clean_text)
@@ -133,29 +158,34 @@ def speak(text: str):
         return
     
     # Load TTS Settings
-    settings = {"tts_enabled": True, "tts_voice": "piper-model/en_US-lessac-medium.onnx", "tts_speed": "+20%"}
-    if os.path.exists("settings.json"):
-        try:
-            with open("settings.json", "r") as f:
-                saved = json.load(f)
-                settings.update(saved)
-        except:
-            pass
-            
-    if "Neural" in settings.get("tts_voice", "") or "piper-model" not in settings.get("tts_voice", ""):
-        settings["tts_voice"] = "piper-model/en_US-lessac-medium.onnx"
-            
+    settings = get_voice_settings()
     if not settings.get("tts_enabled", True):
         return # Do not speak if disabled
+
+    # Atomically claim new generation ID and reset stop event
+    global _speech_generation_id
+    with _speech_lock:
+        _speech_generation_id += 1
+        my_gen_id = _speech_generation_id
+        _stop_speech_event.clear()
+
+    # Pre-emptively stop previous hardware sound output before playing new turn
+    try:
+        import sounddevice as sd
+        sd.stop()
+    except Exception:
+        pass
         
     try:
         tts_engine = settings.get("tts_engine", "piper")
         tts_voice = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
         tts_speed = settings.get("tts_speed", "+20%")
         
-        async def _stream_play():
-            if tts_engine == "edge":
-                try:
+        if tts_engine == "edge":
+            try:
+                import edge_tts, asyncio
+                async def _stream_edge():
+                    global _active_audio_proc
                     comm = edge_tts.Communicate(clean_text, tts_voice, rate=tts_speed)
                     p2 = subprocess.Popen(
                         ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-i", "-"],
@@ -163,73 +193,108 @@ def speak(text: str):
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL
                     )
+                    _active_audio_proc = p2
                     async for chunk in comm.stream():
+                        if my_gen_id != _speech_generation_id or _stop_speech_event.is_set():
+                            p2.terminate()
+                            break
+                        if "server" in sys.modules and getattr(sys.modules["server"].brain, "abort_flag", False):
+                            p2.terminate()
+                            break
                         if chunk["type"] == "audio":
                             try:
-                                import sys
-                                if "server" in sys.modules:
-                                    srv = sys.modules["server"]
-                                    if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
-                                        p2.terminate()
-                                        break
                                 p2.stdin.write(chunk["data"])
                                 p2.stdin.flush()
-                            except:
+                            except Exception:
                                 break
-                    p2.stdin.close()
-                    p2.wait()
-                except Exception:
-                    if 'p2' in locals() and p2.poll() is None:
-                        p2.terminate()
-            else:
-                # Piper TTS Offline In-Memory Streaming Mode
-                try:
-                    voice_obj = get_piper_voice(tts_voice)
-                    if voice_obj:
-                        import sounddevice as sd
-                        import numpy as np
-                        import time
-                        sample_rate = getattr(voice_obj.config, "sample_rate", 22050)
-                        
-                        # Synthesize int16 audio chunks
-                        chunks = []
-                        for audio_chunk in voice_obj.synthesize(clean_text):
-                            import sys
-                            if "server" in sys.modules:
-                                srv = sys.modules["server"]
-                                if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
-                                    return
-                            chunks.append(audio_chunk.audio_int16_bytes)
-                            
-                        if not chunks:
-                            return
-                            
-                        audio_np = np.frombuffer(b"".join(chunks), dtype=np.int16)
-                        
-                        # Play directly via native sounddevice (zero external ffplay dependency)
-                        sd.stop()
-                        sd.play(audio_np, samplerate=sample_rate)
-                        
-                        # Wait for playback completion with 40ms instant abort check
-                        duration_sec = len(audio_np) / float(sample_rate)
-                        start_time = time.time()
-                        while (time.time() - start_time) < (duration_sec + 0.15):
-                            import sys
-                            if "server" in sys.modules:
-                                srv = sys.modules["server"]
-                                if hasattr(srv, "brain") and getattr(srv.brain, "abort_flag", False):
-                                    sd.stop()
-                                    return
-                            time.sleep(0.04)
-                        sd.stop()
-                    else:
-                        speak_os_fallback(clean_text)
-                except Exception as e:
-                    print(f"[Voice] Piper TTS error: {e}. Falling back to OS speech...")
-                    terminate_active_audio()
+                    try:
+                        p2.stdin.close()
+                        p2.wait()
+                    except Exception:
+                        pass
+                asyncio.run(_stream_edge())
+            except Exception:
+                if 'p2' in locals() and p2.poll() is None:
+                    p2.terminate()
+        else:
+            # Piper TTS Instant Sentence-Pipelined Streaming Mode
+            try:
+                voice_obj = get_piper_voice(tts_voice)
+                if not voice_obj:
                     speak_os_fallback(clean_text)
-                
-        asyncio.run(_stream_play())
+                    return
+
+                import sounddevice as sd
+                import numpy as np
+                import time
+
+                sample_rate = getattr(voice_obj.config, "sample_rate", 22050)
+                sentences = _split_into_sentences(clean_text)
+                if not sentences:
+                    return
+
+                # Pipeline: synthesize sentences in background worker, play immediately as each chunk arrives
+                audio_queue = Queue(maxsize=3)
+                synth_done = threading.Event()
+
+                def _synthesize_worker():
+                    try:
+                        for s in sentences:
+                            if my_gen_id != _speech_generation_id or _stop_speech_event.is_set():
+                                break
+                            if "server" in sys.modules and getattr(sys.modules["server"].brain, "abort_flag", False):
+                                break
+                            chunks = []
+                            for chunk in voice_obj.synthesize(s):
+                                if my_gen_id != _speech_generation_id or _stop_speech_event.is_set():
+                                    break
+                                chunks.append(chunk.audio_int16_bytes)
+                            if my_gen_id != _speech_generation_id or _stop_speech_event.is_set():
+                                break
+                            if chunks:
+                                arr = np.frombuffer(b"".join(chunks), dtype=np.int16)
+                                audio_queue.put(arr)
+                    except Exception as e:
+                        print(f"[Voice] Sentence synthesis notice: {e}")
+                    finally:
+                        synth_done.set()
+
+                worker_thread = threading.Thread(target=_synthesize_worker, daemon=True)
+                worker_thread.start()
+
+                # Immediately play audio chunks as each sentence finishes synthesis (~40ms for 1st sentence)
+                while not _stop_speech_event.is_set() and my_gen_id == _speech_generation_id:
+                    if audio_queue.empty() and synth_done.is_set():
+                        break
+                    try:
+                        audio_np = audio_queue.get(timeout=0.03)
+                    except Empty:
+                        continue
+
+                    if my_gen_id != _speech_generation_id or _stop_speech_event.is_set():
+                        sd.stop()
+                        break
+
+                    sd.stop()
+                    sd.play(audio_np, samplerate=sample_rate)
+                    duration_sec = len(audio_np) / float(sample_rate)
+                    start_time = time.time()
+
+                    # High-frequency polling (15ms) for instantaneous abort
+                    while (time.time() - start_time) < (duration_sec - 0.015):
+                        if my_gen_id != _speech_generation_id or _stop_speech_event.is_set():
+                            sd.stop()
+                            return
+                        if "server" in sys.modules and getattr(sys.modules["server"].brain, "abort_flag", False):
+                            sd.stop()
+                            return
+                        time.sleep(0.015)
+
+                sd.stop()
+            except Exception as e:
+                print(f"[Voice] Piper TTS error: {e}. Falling back to OS speech...")
+                terminate_active_audio()
+                speak_os_fallback(clean_text)
     except Exception as e:
         print(f"[Voice] Speak error: {e}. Falling back to OS speech...")
         speak_os_fallback(clean_text)
@@ -264,14 +329,27 @@ def generate_audio_buffer(text: str, voice: str, speed: str) -> bytes:
     return _generate_audio_sync(text, voice, speed)
 
 def terminate_active_audio():
-    """Immediately stops all audio playback and child speech processes."""
-    global _active_audio_proc
+    """Immediately stops all audio playback, kills sounddevice buffer, and aborts speech threads."""
+    global _active_audio_proc, _speech_generation_id
+    with _speech_lock:
+        _speech_generation_id += 1
+        _stop_speech_event.set()
+
+    # 1. Immediately silence hardware sound output in native sounddevice
+    try:
+        import sounddevice as sd
+        sd.stop()
+    except Exception:
+        pass
+
+    # 2. Terminate any active external speech process (ffplay, etc.)
     if _active_audio_proc is not None:
         try:
             _active_audio_proc.kill()
         except Exception:
             pass
         _active_audio_proc = None
+
     import platform, subprocess
     if platform.system() == "Windows":
         subprocess.run("taskkill /F /IM ffplay.exe /T 2>NUL || exit /b 0", shell=True)

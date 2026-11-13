@@ -961,6 +961,7 @@ def handle_remote_prompt(data):
     client_sid = request.sid
     
     session_id = sync_brain_session(session_id)
+    stop_audio_process()
     brain.abort_flag = False
     sid = history_manager.add_message(session_id, "User", prompt_text)
 
