@@ -16,13 +16,11 @@ import re
 
 WAKE_REGEX = re.compile(
     r'\b('
-    r'hello\s+tilux|hey\s+assistant|'
-    r'tilux|tlox|tielux|tealux|deluxe|'
-    r'assistant|assistance|'
-    r'(hey|hi|hello|ok|okay|yo|wake\s+up)\s+(tilux|tlox|deluxe|assistant|looks|locks|lux|lox|alex)|'
-    r'(to|two|too|the|til|till|tell|tea|tee|tie|ty|t|de|d)\s+(looks|locks|lux|lox|luke\'?s|alex|acts)|'
-    r'still\s+looks|'
-    r'they\s+tell\s+(looks|us)'
+    r'hello\s+tilux|hey\s+tilux|hi\s+tilux|ok\s+tilux|okay\s+tilux|yo\s+tilux|wake\s+up\s+tilux|'
+    r'hello\s+assistant|hey\s+assistant|hi\s+assistant|ok\s+assistant|okay\s+assistant|'
+    r'tilux|tlox|t-lux|t lux|tielux|tealux|deluxe|'
+    r'(hey|hi|hello|ok|okay)\s+(deluxe|looks|locks|lux|lox|alex)|'
+    r'(tea|tee|tie)\s+(looks|locks|lux|lox)'
     r')\b',
     re.IGNORECASE
 )
@@ -85,30 +83,13 @@ class WakeWordEngine:
         self.q = queue.Queue()
         self.model_path = self._locate_or_download_model()
         self.active_keywords = [
-            "hello tilux", "hey assistant",
-            "hey tilux", "hi tilux", "ok tilux", "okay tilux", "yo tilux",
-            "hello assistant", "hi assistant", "ok assistant", "okay assistant",
+            "hello tilux", "hey tilux", "hi tilux", "ok tilux", "okay tilux", "yo tilux", "wake up tilux",
+            "hello assistant", "hey assistant", "hi assistant", "ok assistant", "okay assistant",
             "tilux", "tlox", "t lox", "t-lux", "t lux", "tielux", "tie lux", "tealux", "tee lux", "tea lux",
             "deluxe", "de luxe", "d lux",
-            "to looks", "to locks", "to lux", "to lox",
-            "two looks", "two locks", "two lux",
-            "too looks", "too locks",
-            "the looks", "the locks", "the lux", "the lox", "the alex",
-            "til looks", "til locks", "til lux",
-            "still looks",
-            "it's looks",
-            "tell looks",
-            "she looks",
-            "it looks",
-            "tie looks",
-            "he looks",
-            "they tell looks", "they tell us",
-            "tea locks", "tee locks", "tie locks",
-            "tea looks", "tee looks", "tie looks",
-            "ty looks", "till acts",
-            "assistant", "assistance",
             "hey deluxe", "hi deluxe", "hello deluxe",
-            "hey looks", "hey locks", "hey lux"
+            "hey looks", "hey locks", "hey lux", "hi looks", "hi lux", "hello looks",
+            "tea looks", "tee looks", "tie looks", "tea locks", "tee locks", "tie locks"
         ]
 
     def check_trigger(self, text: str) -> bool:
@@ -118,15 +99,23 @@ class WakeWordEngine:
     def extract_trigger_and_trailing(self, text: str):
         if not text:
             return False, ""
+        try:
+            from voice import is_tts_speaking
+            if is_tts_speaking():
+                return False, ""
+        except Exception:
+            pass
+
         clean = text.lower().strip()
         m = WAKE_REGEX.search(clean)
         if m:
             trailing = clean[m.end():].strip(" ,.:;-")
             return True, trailing
         for kw in self.active_keywords:
-            if kw in clean:
-                idx = clean.find(kw)
-                trailing = clean[idx + len(kw):].strip(" ,.:;-")
+            pattern = r'\b' + re.escape(kw) + r'\b'
+            m2 = re.search(pattern, clean)
+            if m2:
+                trailing = clean[m2.end():].strip(" ,.:;-")
                 return True, trailing
         return False, ""
 
@@ -145,6 +134,12 @@ class WakeWordEngine:
                 self.q.get_nowait()
             except queue.Empty:
                 break
+        try:
+            from voice import is_tts_speaking
+            if is_tts_speaking():
+                return
+        except Exception:
+            pass
         self.is_paused = False
 
     def _listen_loop(self):
@@ -174,6 +169,14 @@ class WakeWordEngine:
                             data = self.q.get(timeout=1)
                         except queue.Empty:
                             continue
+
+                        try:
+                            from voice import is_tts_speaking
+                            if is_tts_speaking():
+                                recognizer.Reset()
+                                continue
+                        except Exception:
+                            pass
                         
                         if recognizer.AcceptWaveform(data):
                             result = json.loads(recognizer.Result())

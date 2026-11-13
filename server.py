@@ -235,17 +235,22 @@ def _on_wake_word(initial_phrase=""):
                 WIDGET_STATE["speak_id"] = time.time()
                 
                 if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                    WIDGET_SPEECH_EVENT.clear()
-                    WIDGET_STATE["speak_text"] = wake_greeting
-                    word_count = len(wake_greeting.split())
-                    timeout_sec = max(1.2, (word_count * 0.25) + 0.5)
-                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                    from voice import set_tts_speaking
+                    set_tts_speaking(True, wake_greeting)
+                    try:
+                        WIDGET_SPEECH_EVENT.clear()
+                        WIDGET_STATE["speak_text"] = wake_greeting
+                        word_count = len(wake_greeting.split())
+                        timeout_sec = max(1.2, (word_count * 0.25) + 0.5)
+                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                    finally:
+                        set_tts_speaking(False)
                 else:
                     speak(wake_greeting)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["sub_text"] = ""
-                time.sleep(0.05)
+                time.sleep(0.35)
 
             first_turn = True
             while not brain.abort_flag and is_voice_assistant_active:
@@ -300,16 +305,21 @@ def _on_wake_word(initial_phrase=""):
                         WIDGET_STATE["is_speaking"] = True
                         WIDGET_STATE["speak_id"] = time.time()
                         if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                            WIDGET_SPEECH_EVENT.clear()
-                            WIDGET_STATE["speak_text"] = reply_text
-                            timeout_sec = max(2.0, (len(reply_text.split()) * 0.25) + 1.0)
-                            WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                            from voice import set_tts_speaking
+                            set_tts_speaking(True, reply_text)
+                            try:
+                                WIDGET_SPEECH_EVENT.clear()
+                                WIDGET_STATE["speak_text"] = reply_text
+                                timeout_sec = max(2.0, (len(reply_text.split()) * 0.25) + 1.0)
+                                WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                            finally:
+                                set_tts_speaking(False)
                         else:
                             speak(reply_text)
                     WIDGET_STATE["is_speaking"] = False
                     WIDGET_STATE["sub_text"] = ""
                     WIDGET_STATE["main_text"] = "Listening..."
-                    time.sleep(0.15)
+                    time.sleep(0.35)
                     continue
                 
                 # 3. Stream-to-Speech LLM Execution
@@ -352,16 +362,21 @@ def _on_wake_word(initial_phrase=""):
                     WIDGET_STATE["reply_text"] = reply_text
                     WIDGET_STATE["is_speaking"] = True
                     WIDGET_STATE["speak_id"] = time.time()
-                    WIDGET_SPEECH_EVENT.clear()
-                    WIDGET_STATE["speak_text"] = reply_text
-                    word_count = len(clean_widget_text.split())
-                    timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
-                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                    from voice import set_tts_speaking
+                    set_tts_speaking(True, reply_text)
+                    try:
+                        WIDGET_SPEECH_EVENT.clear()
+                        WIDGET_STATE["speak_text"] = reply_text
+                        word_count = len(clean_widget_text.split())
+                        timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
+                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
+                    finally:
+                        set_tts_speaking(False)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["sub_text"] = ""
                 WIDGET_STATE["main_text"] = "Listening..."
-                time.sleep(0.2)
+                time.sleep(0.35)
         finally:
             WIDGET_STATE["main_text"] = ""
             WIDGET_STATE["sub_text"] = ""

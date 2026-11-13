@@ -1,5 +1,7 @@
 import subprocess
 import os
+import sys
+import time
 from ctypes import *
 from contextlib import contextmanager
 
@@ -31,6 +33,41 @@ _speech_generation_id = 0
 _speech_lock = threading.Lock()
 _stop_speech_event = threading.Event()
 _active_audio_proc = None
+
+_is_tts_playing = False
+_last_tts_end_time = 0.0
+_last_spoken_phrases = []
+
+def is_tts_speaking() -> bool:
+    """Returns True if TTS is actively outputting sound or still decaying in the room."""
+    global _is_tts_playing, _last_tts_end_time
+    if _is_tts_playing:
+        return True
+    return (time.time() - _last_tts_end_time) < 0.40
+
+def set_tts_speaking(speaking: bool, spoken_text: str = ""):
+    """Updates TTS playing state and synchronizes wake-word suppression."""
+    global _is_tts_playing, _last_tts_end_time, _last_spoken_phrases
+    _is_tts_playing = speaking
+    if speaking:
+        if spoken_text:
+            cleaned = clean_speech_text(spoken_text).lower().strip(" ,.!?")
+            if cleaned:
+                _last_spoken_phrases.append((cleaned, time.time()))
+                if len(_last_spoken_phrases) > 8:
+                    _last_spoken_phrases.pop(0)
+        try:
+            import wake_word
+            wake_word.pause_wake_word()
+        except Exception:
+            pass
+    else:
+        _last_tts_end_time = time.time()
+        try:
+            import wake_word
+            wake_word.resume_wake_word()
+        except Exception:
+            pass
 
 def _split_into_sentences(text: str) -> list:
     """Splits text into natural sentence-sized chunks for instant streaming speech."""
@@ -168,6 +205,7 @@ class SpeechStreamer:
             _stop_speech_event.clear()
             _active_speech_streamer = self
 
+        set_tts_speaking(True)
         self.queue = Queue()
         self.on_chunk_start = on_chunk_start
         self.stop_event = threading.Event()
@@ -192,6 +230,7 @@ class SpeechStreamer:
             sd.stop()
         except Exception:
             pass
+        set_tts_speaking(False)
 
     def _run(self):
         import sounddevice as sd
@@ -202,56 +241,66 @@ class SpeechStreamer:
         voice_obj = get_piper_voice(tts_voice)
         sample_rate = getattr(voice_obj.config, "sample_rate", 22050) if voice_obj else 22050
 
-        while not self.stop_event.is_set() and not _stop_speech_event.is_set() and self.gen_id == _speech_generation_id:
-            try:
-                sentence = self.queue.get(timeout=0.05)
-            except Empty:
-                continue
-            if sentence is None:
-                break
-            if not sentence.strip():
-                continue
-
-            if "server" in sys.modules:
-                srv = sys.modules["server"]
-                if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
-                    break
-
-            clean = clean_speech_text(sentence)
-            if not clean:
-                continue
-
-            if self.on_chunk_start and callable(self.on_chunk_start):
+        try:
+            while not self.stop_event.is_set() and not _stop_speech_event.is_set() and self.gen_id == _speech_generation_id:
                 try:
-                    self.on_chunk_start(clean)
-                except Exception:
-                    pass
+                    sentence = self.queue.get(timeout=0.05)
+                except Empty:
+                    continue
+                if sentence is None:
+                    break
+                if not sentence.strip():
+                    continue
 
-            if voice_obj:
-                chunks = []
-                for chunk in voice_obj.synthesize(clean):
+                if "server" in sys.modules:
+                    srv = sys.modules["server"]
+                    if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
+                        break
+
+                clean = clean_speech_text(sentence)
+                if not clean:
+                    continue
+
+                set_tts_speaking(True, clean)
+
+                if self.on_chunk_start and callable(self.on_chunk_start):
+                    try:
+                        self.on_chunk_start(clean)
+                    except Exception:
+                        pass
+
+                if voice_obj:
+                    chunks = []
+                    for chunk in voice_obj.synthesize(clean):
+                        if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
+                            break
+                        chunks.append(chunk.audio_int16_bytes)
                     if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
                         break
-                    chunks.append(chunk.audio_int16_bytes)
-                if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
-                    break
-                if chunks:
-                    audio_np = np.frombuffer(b"".join(chunks), dtype=np.int16)
-                    sd.play(audio_np, samplerate=sample_rate)
-                    duration_sec = len(audio_np) / float(sample_rate)
-                    t0 = time.time()
-                    while (time.time() - t0) < (duration_sec - 0.015):
-                        if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
-                            sd.stop()
-                            return
-                        if "server" in sys.modules:
-                            srv = sys.modules["server"]
-                            if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
+                    if chunks:
+                        audio_np = np.frombuffer(b"".join(chunks), dtype=np.int16)
+                        sd.play(audio_np, samplerate=sample_rate)
+                        duration_sec = len(audio_np) / float(sample_rate)
+                        t0 = time.time()
+                        while (time.time() - t0) < (duration_sec - 0.015):
+                            if self.stop_event.is_set() or _stop_speech_event.is_set() or self.gen_id != _speech_generation_id:
                                 sd.stop()
                                 return
-                        time.sleep(0.015)
-            else:
-                speak_os_fallback(clean)
+                            if "server" in sys.modules:
+                                srv = sys.modules["server"]
+                                if getattr(srv.brain, "abort_flag", False) or not getattr(srv, "is_voice_assistant_active", True):
+                                    sd.stop()
+                                    return
+                            time.sleep(0.015)
+                else:
+                    speak_os_fallback(clean)
+        finally:
+            try:
+                import sounddevice as sd
+                sd.stop()
+            except Exception:
+                pass
+            set_tts_speaking(False)
 
 def speak(text: str):
     """Converts text to speech and plays it with instantaneous sentence-pipelined streaming and zero lag."""
@@ -270,6 +319,8 @@ def speak(text: str):
         _speech_generation_id += 1
         my_gen_id = _speech_generation_id
         _stop_speech_event.clear()
+
+    set_tts_speaking(True, clean_text)
 
     # Pre-emptively stop previous hardware sound output before playing new turn
     try:
@@ -340,6 +391,7 @@ def speak(text: str):
                 synth_done = threading.Event()
 
                 def _synthesize_worker():
+                    import sys
                     try:
                         for s in sentences:
                             if my_gen_id != _speech_generation_id or _stop_speech_event.is_set():
@@ -400,6 +452,13 @@ def speak(text: str):
     except Exception as e:
         print(f"[Voice] Speak error: {e}. Falling back to OS speech...")
         speak_os_fallback(clean_text)
+    finally:
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+        set_tts_speaking(False)
 
 def speak_os_fallback(text: str) -> bool:
     """Fallback to native OS speech (spd-say / pyttsx3 / say / SAPI)."""
@@ -412,7 +471,7 @@ def speak_os_fallback(text: str) -> bool:
             res = subprocess.run(["say", text], check=False)
             return res.returncode == 0
         elif sys_name == "Linux":
-            res = subprocess.run(["spd-say", "-t", "female2", "-r", "10", text], capture_output=True)
+            res = subprocess.run(["spd-say", "-w", "-t", "female2", "-r", "10", text], capture_output=True)
             if res.returncode == 0:
                 return True
         import pyttsx3
@@ -622,7 +681,21 @@ def listen(on_recording_done=None) -> str:
     model = get_whisper_model()
     if not model:
         return ""
-        
+
+    # 1. Acoustic Echo Gate: Wait for any active speech output to finish completely
+    t_wait_start = time.time()
+    while is_tts_speaking() and (time.time() - t_wait_start) < 8.0:
+        time.sleep(0.05)
+
+    # Room acoustic settling delay (350ms) so speaker sound waves clear the microphone completely
+    time.sleep(0.35)
+
+    try:
+        import sounddevice as sd
+        sd.stop()
+    except Exception:
+        pass
+
     sample_rate = 16000
     print("[Voice] Listening for user speech...")
     
@@ -752,6 +825,24 @@ def listen(on_recording_done=None) -> str:
         )
         text = " ".join([segment.text for segment in segments]).strip()
         print(f"[Voice] Faster-whisper transcript: '{text}'")
+        
+        # Acoustic Echo Self-Recognition Filter:
+        # If the transcribed text matches something the assistant just spoke in the last 10 seconds,
+        # reject it immediately so the assistant NEVER replies to its own voice!
+        if text:
+            text_clean = text.lower().strip(" ,.!?")
+            global _last_spoken_phrases
+            now = time.time()
+            _last_spoken_phrases = [(p, t) for p, t in _last_spoken_phrases if (now - t) < 10.0]
+            for spoken, t in _last_spoken_phrases:
+                if text_clean and (
+                    text_clean == spoken
+                    or (len(text_clean) > 6 and text_clean in spoken)
+                    or (len(spoken) > 6 and spoken in text_clean)
+                ):
+                    print(f"[Voice] 🔇 Suppressed acoustic loopback (heard own voice: '{text_clean}')")
+                    return ""
+
         return text
     except Exception as e:
         print(f"[Voice] Microphone/Recognition Error: {e}")
