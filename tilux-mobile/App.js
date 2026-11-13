@@ -45,10 +45,13 @@ export default function App() {
   const normalizeUrl = (rawUrl) => {
     let clean = (rawUrl || '').trim();
     if (!clean) return '';
+    let isHttps = clean.toLowerCase().startsWith('https://') || clean.toLowerCase().startsWith('wss://') || clean.includes('trycloudflare') || clean.includes('ngrok');
     clean = clean.replace(/^(wss?:\/\/|https?:\/\/)/i, '');
     clean = clean.replace(/\/+$/, '');
-    if (!clean.includes(':')) clean = clean + ':8932';
-    return 'http://' + clean;
+    if (!clean.includes(':') && !clean.includes('ngrok') && !clean.includes('cloudflare') && !clean.includes('trycloudflare') && !clean.includes('vercel') && !clean.includes('firebase')) {
+      clean = clean + ':8932';
+    }
+    return (isHttps ? 'https://' : 'http://') + clean;
   };
 
   const connectSocket = (url, connToken) => {
@@ -123,22 +126,41 @@ export default function App() {
     setShowScanner(true);
   };
 
-  const handleBarcodeScanned = ({ data }) => {
+  const handleBarcodeScanned = async ({ data }) => {
     if (scanLock.current) return;
     scanLock.current = true;
-    let url = '', tok = '', name = '';
+    let url = '', tok = '', name = '', hostId = '';
     try {
       const obj = JSON.parse(data);
       url = obj.url || obj.server || obj.serverUrl || '';
       tok = obj.token || obj.pair_token || obj.pairToken || '';
       name = obj.pc_name || obj.pcName || '';
+      hostId = obj.host_id || obj.hostId || '';
     } catch (e) {
       const urlMatch = data.match(/(https?:\/\/[^\s"'<>]+)/i);
       if (urlMatch) url = urlMatch[1];
-      const tokMatch = data.match(/token=([^&\s"']+)/i);
-      if (tokMatch) tok = tokMatch[1];
+      const tokMatch = data.match(/token=([^&\s"']+)/i) || data.match(/(tilux_pair_[a-zA-Z0-9_-]+)/i);
+      if (tokMatch) tok = tokMatch[1] || tokMatch[0];
+      const hostMatch = data.match(/(tilux_host_[a-zA-Z0-9_-]+)/i);
+      if (hostMatch) hostId = hostMatch[1];
     }
     setShowScanner(false);
+
+    if (hostId && (!url || url.startsWith('http://'))) {
+      try {
+        const resp = await fetch(`https://tiluxasm-default-rtdb.firebaseio.com/hosts/${hostId}.json`);
+        if (resp.ok) {
+          const hData = await resp.json();
+          if (hData) {
+            if (hData.tunnel_url) url = hData.tunnel_url;
+            else if (hData.local_url && !url) url = hData.local_url;
+            if (hData.pair_token && !tok) tok = hData.pair_token;
+            if (hData.pc_name && !name) name = hData.pc_name;
+          }
+        }
+      } catch (_) {}
+    }
+
     if (url && tok) {
       if (name) setPcName(name);
       setServerUrl(url);

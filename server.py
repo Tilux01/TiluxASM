@@ -732,7 +732,8 @@ def trigger_action():
         subprocess.Popen("gnome-calculator", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     elif action == "music":
         # Launch youtube music in background via play_music wrapper
-        subprocess.Popen('./venv/bin/python play_music.py "top hits" &', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        py_bin = sys.executable if sys.executable else "python3"
+        subprocess.Popen([py_bin, "play_music.py", "top hits"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     elif action == "toggle_god_mode":
         state = request.json.get("state", False)
         import json, os
@@ -969,8 +970,8 @@ def handle_remote_prompt(data):
         socketio.emit("agent_status", {"status": "Thinking..."}, to=client_sid)
         saved_files = []
         if raw_attachments:
-            import os, uuid, base64
-            temp_dir = "/tmp/tilux_uploads"
+            import os, uuid, base64, tempfile
+            temp_dir = os.path.join(tempfile.gettempdir(), "tilux_uploads")
             os.makedirs(temp_dir, exist_ok=True)
             for item in raw_attachments:
                 try:

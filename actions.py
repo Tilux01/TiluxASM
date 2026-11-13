@@ -164,10 +164,16 @@ def execute_python_code(code: str) -> str:
     This gives the AI ultimate power to use PyAutoGUI, requests, selenium, etc.
     """
     import os
-    
-    # Save code to a temp file, but inject a non-blocking webbrowser monkey-patch
-    temp_file = "temp_automation.py"
-    
+    import sys
+    import tempfile
+    import uuid
+    import subprocess
+    import re
+
+    # Save code to a temp file in the OS temp directory to avoid CWD permission errors
+    temp_dir = tempfile.gettempdir()
+    temp_file = os.path.join(temp_dir, f"tilux_auto_{uuid.uuid4().hex[:8]}.py")
+
     monkey_patch = """import webbrowser, subprocess, platform
 def _mock_open(url, *args, **kwargs):
     os_name = platform.system()
@@ -184,44 +190,50 @@ webbrowser.open_new = _mock_open
 webbrowser.open_new_tab = _mock_open
 
 """
-    with open(temp_file, "w") as f:
-        f.write(monkey_patch + code)
-        
-    # Log the AI's code for debugging
-    with open("tilux_code_history.log", "a") as log:
-        log.write("\n\n--- EXECUTING SCRIPT ---\n")
-        log.write(code)
-    
-    # Execute the file using the local venv python
     try:
-        import platform
-        if platform.system() == "Windows" and os.path.exists("./venv/Scripts/python.exe"):
-            python_bin = "./venv/Scripts/python.exe"
-        elif os.path.exists("./venv/bin/python"):
-            python_bin = "./venv/bin/python"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(monkey_patch + code)
+    except Exception as e:
+        return f"Failed to write automation script: {e}"
+
+    # Log the AI's code for debugging into user data or temp directory
+    log_dir = os.environ.get("TILUX_USER_DATA_DIR") or temp_dir
+    log_path = os.path.join(log_dir, "tilux_code_history.log")
+    try:
+        with open(log_path, "a", encoding="utf-8") as log:
+            log.write("\n\n--- EXECUTING SCRIPT ---\n")
+            log.write(code)
+    except Exception:
+        pass
+
+    # Execute using the currently active Python executable (bundled runtime or venv)
+    try:
+        python_bin = sys.executable if sys.executable else "python3"
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        env = os.environ.copy()
+        if "PYTHONPATH" in env:
+            env["PYTHONPATH"] = f"{base_dir}{os.pathsep}{env['PYTHONPATH']}"
         else:
-            python_bin = "python3"
-        result = subprocess.run([python_bin, temp_file], capture_output=True, text=True, timeout=120)
-        
+            env["PYTHONPATH"] = base_dir
+
+        result = subprocess.run([python_bin, temp_file], capture_output=True, text=True, timeout=120, env=env)
         output = result.stdout + result.stderr
-        
-        import re
+
         output = re.sub(r'[A-Za-z0-9+/=]{2000,}', '[BASE64_MEDIA_DATA_REMOVED]', output)
-        
         if len(output) > 40000:
             output = output[:40000] + "\n\n... [OUTPUT TRUNCATED BY SYSTEM TO PREVENT TOKEN OVERFLOW]"
-        
-        # Clean up
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
-            
+
         if not output.strip():
             return "Python code executed successfully with no output."
         return output
     except Exception as e:
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
         return f"Python execution failed: {str(e)}"
+    finally:
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
 
 def generate_image(prompt: str) -> str:
     """

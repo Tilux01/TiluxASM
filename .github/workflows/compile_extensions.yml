@@ -179,6 +179,9 @@ jobs:
           # Install dependencies into the embedded runtime
           ./tilux_engine_dist/runtime/python.exe -m pip install -r requirements.txt --prefer-binary --no-warn-script-location
 
+          # Pre-bundle official cloudflared binary for instantaneous high-speed remote tunnel
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -o tilux_engine_dist/cloudflared.exe
+
       - name: Download & Bundle Standalone Python Runtime (Linux)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
@@ -191,6 +194,10 @@ jobs:
           # Install dependencies into standalone runtime
           ./tilux_engine_dist/runtime/bin/python3 -m pip install -r requirements.txt --prefer-binary
 
+          # Pre-bundle official cloudflared binary
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o tilux_engine_dist/cloudflared
+          chmod +x tilux_engine_dist/cloudflared
+
       - name: Download & Bundle Standalone Python Runtime (macOS)
         if: matrix.os == 'macos-latest'
         shell: bash
@@ -202,6 +209,12 @@ jobs:
 
           # Install dependencies into standalone runtime
           ./tilux_engine_dist/runtime/bin/python3 -m pip install -r requirements.txt --prefer-binary
+
+          # Pre-bundle official cloudflared binary
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz -o cf.tgz
+          tar -xzf cf.tgz -C tilux_engine_dist
+          rm -f cf.tgz
+          chmod +x tilux_engine_dist/cloudflared || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

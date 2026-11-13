@@ -70,12 +70,14 @@ class TunnelManager:
             while True:
                 try:
                     import shutil, platform
-                    stdbuf_prefix = "stdbuf -oL -eL " if shutil.which("stdbuf") else ""
                     cf_cmd = self._get_cloudflared_command()
-                    cmd = f"{stdbuf_prefix}{cf_cmd} tunnel --url http://localhost:{self.port}"
+                    if isinstance(cf_cmd, str) and not os.path.exists(cf_cmd) and " " in cf_cmd:
+                        cmd_list = cf_cmd.split() + ["tunnel", "--url", f"http://127.0.0.1:{self.port}"]
+                    else:
+                        cmd_list = [cf_cmd, "tunnel", "--url", f"http://127.0.0.1:{self.port}"]
+
                     print(f"[Tunnel Manager] Spawning Secure High-Speed Tunnel on port {self.port}...", flush=True)
                     popen_kwargs = {
-                        "shell": True,
                         "stdout": subprocess.PIPE,
                         "stderr": subprocess.STDOUT,
                         "text": True,
@@ -83,7 +85,7 @@ class TunnelManager:
                     }
                     if platform.system() == "Windows":
                         popen_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
-                    self.process = subprocess.Popen(cmd, **popen_kwargs)
+                    self.process = subprocess.Popen(cmd_list, **popen_kwargs)
                     
                     for line in iter(self.process.stdout.readline, ''):
                         if not line:
@@ -110,6 +112,8 @@ class TunnelManager:
                 except Exception as e:
                     print(f"[Tunnel Manager Error] {e}", flush=True)
                 
+                os.environ.pop("TILUX_TUNNEL_URL", None)
+                self.tunnel_url = None
                 print("[Tunnel Manager] Secure Tunnel process exited. Reconnecting in 3 seconds...", flush=True)
                 time.sleep(3)
 

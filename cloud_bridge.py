@@ -26,12 +26,14 @@ class CloudBridge:
             "host_id": host_id,
             "pair_token": pair_token or "",
             "wake_token": wake_token or "",
-            "tunnel_url": tunnel_url or "",
-            "local_url": tunnel_url or "",
             "is_online": True,
             "last_seen": int(time.time()),
             "pc_name": pc_name or os.getenv("COMPUTERNAME") or os.getenv("HOSTNAME") or "Tilux-PC"
         }
+        if tunnel_url:
+            payload["local_url"] = tunnel_url
+            if tunnel_url.startswith("https://"):
+                payload["tunnel_url"] = tunnel_url
 
         try:
             data = json.dumps(payload).encode('utf-8')
