@@ -67,9 +67,21 @@ class TunnelManager:
     def start_tunnel(self, get_host_info_func=None):
         self.get_host_info_func = get_host_info_func
         def _run():
+            retry_delay = 5
             while True:
+                last_err = ""
+                connected = False
                 try:
                     import shutil, platform
+                    # Terminate any orphan cloudflared instances first to avoid duplicate tunnel collisions
+                    try:
+                        if platform.system() == "Windows":
+                            subprocess.run(["taskkill", "/F", "/IM", "cloudflared.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        else:
+                            subprocess.run(["pkill", "-f", "cloudflared tunnel"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except Exception:
+                        pass
+
                     cf_cmd = self._get_cloudflared_command()
                     extra_flags = ["--protocol", "http2", "--no-autoupdate", "--metrics", "127.0.0.1:0"]
                     if isinstance(cf_cmd, str) and not os.path.exists(cf_cmd) and " " in cf_cmd:
@@ -77,7 +89,7 @@ class TunnelManager:
                     else:
                         cmd_list = [cf_cmd, "tunnel"] + extra_flags + ["--url", f"http://127.0.0.1:{self.port}"]
 
-                    print(f"[Tunnel Manager] Spawning Secure High-Speed Tunnel on port {self.port}...", flush=True)
+                    print(f"[Tunnel Manager] Connecting Secure Remote Tunnel on port {self.port}...", flush=True)
                     popen_kwargs = {
                         "stdout": subprocess.PIPE,
                         "stderr": subprocess.STDOUT,
@@ -98,7 +110,9 @@ class TunnelManager:
                                 url = match.group(0)
                                 self.tunnel_url = url
                                 os.environ["TILUX_TUNNEL_URL"] = url
-                                print(f"[Tunnel Manager] 🚀 Secure High-Speed Tunnel URL established: {url}", flush=True)
+                                print(f"[Tunnel Manager] 🚀 Secure Remote Tunnel URL established: {url}", flush=True)
+                                retry_delay = 5  # Reset backoff on success
+                                connected = True
                                 if self.get_host_info_func:
                                     info = self.get_host_info_func()
                                     host_id = info[0]
@@ -108,15 +122,28 @@ class TunnelManager:
                                     cloud_bridge.sync_host_state(host_id, pair_token, url, pc_name, wake_token)
                                 else:
                                     cloud_bridge.sync_tunnel_url(url)
-                                
+                        elif any(k in line_str.lower() for k in ["429", "rate limit", "error", "failed", "status 5"]):
+                            last_err = line_str
+
                     self.process.wait()
                 except Exception as e:
-                    print(f"[Tunnel Manager Error] {e}", flush=True)
+                    last_err = str(e)
                 
                 os.environ.pop("TILUX_TUNNEL_URL", None)
                 self.tunnel_url = None
-                print("[Tunnel Manager] Secure Tunnel process exited. Reconnecting in 3 seconds...", flush=True)
-                time.sleep(3)
+                
+                # If rate-limited (429), use 60s cooldown so Cloudflare's rate limit window can clear
+                if "429" in last_err.lower() or "rate" in last_err.lower():
+                    retry_delay = 60
+                    print(f"[Tunnel Manager] Cloudflare quick tunnel rate-limited (HTTP 429). Cooling down for {retry_delay}s...", flush=True)
+                else:
+                    retry_delay = min(retry_delay * 2 if not connected else 5, 60)
+                    if last_err:
+                        print(f"[Tunnel Manager] Notice: {last_err}. Reconnecting in {retry_delay}s...", flush=True)
+                    else:
+                        print(f"[Tunnel Manager] Tunnel closed. Reconnecting in {retry_delay}s...", flush=True)
+                
+                time.sleep(retry_delay)
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
