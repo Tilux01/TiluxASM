@@ -1486,6 +1486,22 @@ if __name__ == "__main__":
     except Exception:
         pass
 
+    if platform.system() == "Windows":
+        try:
+            _py_bin = sys.executable
+            _cf_bin = os.path.join(_current_dir, "cloudflared.exe")
+            subprocess.run(
+                ["netsh", "advfirewall", "firewall", "add", "rule", "name=Tilux Python", "dir=in", "action=allow", f"program={_py_bin}", "enable=yes"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+            )
+            if os.path.exists(_cf_bin):
+                subprocess.run(
+                    ["netsh", "advfirewall", "firewall", "add", "rule", "name=Tilux Cloudflared", "dir=in", "action=allow", f"program={_cf_bin}", "enable=yes"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+                )
+        except Exception:
+            pass
+
     psutil.cpu_percent(interval=0.1)
     usage_tracker.socketio = socketio
     # Sync wallet balance from Cloud state on startup in case of mobile top-up or local wipe

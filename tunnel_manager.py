@@ -71,10 +71,11 @@ class TunnelManager:
                 try:
                     import shutil, platform
                     cf_cmd = self._get_cloudflared_command()
+                    extra_flags = ["--protocol", "http2", "--no-autoupdate", "--metrics", "127.0.0.1:0"]
                     if isinstance(cf_cmd, str) and not os.path.exists(cf_cmd) and " " in cf_cmd:
-                        cmd_list = cf_cmd.split() + ["tunnel", "--url", f"http://127.0.0.1:{self.port}"]
+                        cmd_list = cf_cmd.split() + ["tunnel"] + extra_flags + ["--url", f"http://127.0.0.1:{self.port}"]
                     else:
-                        cmd_list = [cf_cmd, "tunnel", "--url", f"http://127.0.0.1:{self.port}"]
+                        cmd_list = [cf_cmd, "tunnel"] + extra_flags + ["--url", f"http://127.0.0.1:{self.port}"]
 
                     print(f"[Tunnel Manager] Spawning Secure High-Speed Tunnel on port {self.port}...", flush=True)
                     popen_kwargs = {
