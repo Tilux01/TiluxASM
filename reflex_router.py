@@ -60,6 +60,24 @@ _APP_ALIASES = {
     "vlc": "vlc",
 }
 
+_SITE_SHORTCUTS = {
+    "youtube": "https://www.youtube.com",
+    "google": "https://www.google.com",
+    "github": "https://www.github.com",
+    "reddit": "https://www.reddit.com",
+    "twitter": "https://www.twitter.com",
+    "x": "https://www.x.com",
+    "netflix": "https://www.netflix.com",
+    "chatgpt": "https://chatgpt.com",
+    "gmail": "https://mail.google.com",
+    "wikipedia": "https://www.wikipedia.org",
+    "amazon": "https://www.amazon.com",
+    "facebook": "https://www.facebook.com",
+    "instagram": "https://www.instagram.com",
+    "linkedin": "https://www.linkedin.com",
+    "tiktok": "https://www.tiktok.com",
+}
+
 def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
     """
     Checks if a user prompt can be handled deterministically via high-speed native reflex.
@@ -169,13 +187,48 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             "sub_text": res.get("output", f"Spotify: {query}")
         }
 
-    # 3. Fast App Launching
+    # 3. Web Search Reflex (Google / Search for)
+    search_match = re.match(r'^(?:search\s+(?:for\s+)?|google\s+)(.+)$', clean, re.I)
+    if search_match:
+        q = search_match.group(1).strip()
+        import urllib.parse
+        target_url = f"https://www.google.com/search?q={urllib.parse.quote(q)}"
+        res = OSProtocols.open_url(target_url)
+        return {
+            "handled": True,
+            "action": "web_search",
+            "reply": f"Searching Google for {q}.",
+            "sub_text": f"Google: {q}"
+        }
+
+    # 4. Universal App Launching & Website Opening
     app_match = _RE_APP_OPEN.match(clean)
     if app_match:
-        raw_app = app_match.group(1).lower().strip()
-        # Look up mapped alias
-        target_app = _APP_ALIASES.get(raw_app)
-        if target_app:
+        raw_target = app_match.group(1).strip()
+        # Verify no dangerous shell chaining characters
+        if not re.search(r'[;&|><`$\n]', raw_target):
+            target_lower = raw_target.lower()
+            
+            # 4a. Is it a well-known site shortcut or URL?
+            if target_lower in _SITE_SHORTCUTS or "." in target_lower or target_lower.startswith("http"):
+                if target_lower in _SITE_SHORTCUTS:
+                    target_url = _SITE_SHORTCUTS[target_lower]
+                elif target_lower.startswith("http://") or target_lower.startswith("https://"):
+                    target_url = target_lower
+                else:
+                    target_url = f"https://{target_lower}"
+                res = OSProtocols.open_url(target_url)
+                pretty_name = target_lower.replace("https://", "").replace("http://", "").replace("www.", "").split(".")[0].title()
+                return {
+                    "handled": True,
+                    "action": "open_url",
+                    "reply": f"Opening {pretty_name}.",
+                    "sub_text": res.get("output", f"Opened {target_url}")
+                }
+
+            # 4b. Universal App Launch
+            raw_app = re.sub(r'\s+(?:app|application)$', '', target_lower)
+            target_app = _APP_ALIASES.get(raw_app, raw_app)
             res = OSProtocols.open_app(target_app)
             pretty_name = raw_app.title()
             return {

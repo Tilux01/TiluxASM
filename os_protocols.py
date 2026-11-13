@@ -623,6 +623,33 @@ class LinuxProtocol:
             subprocess.Popen(["code"] + (args or []), start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return {"status": "success", "os": "Linux", "action": "open_app", "output": "Opened VS Code"}
             
+        # Check direct binary or hyphenated binary in system PATH
+        cands = [app_clean, app_clean.replace(" ", "-"), app_clean.replace(" ", ""), app_clean + "-desktop"]
+        for c in cands:
+            if shutil.which(c):
+                full_cmd = [c] + (args or [])
+                subprocess.Popen(full_cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Launched {c}"}
+
+        # Check all standard Linux desktop application directories (.desktop files)
+        clean_no_space = app_clean.replace(" ", "")
+        search_dirs = ["/usr/share/applications", os.path.expanduser("~/.local/share/applications"), "/var/lib/flatpak/exports/share/applications"]
+        for d in search_dirs:
+            if os.path.exists(d):
+                for f in os.listdir(d):
+                    if f.endswith(".desktop"):
+                        fn_clean = f.lower().replace(".desktop", "").replace("-", "").replace("_", "")
+                        if clean_no_space in fn_clean or fn_clean in clean_no_space:
+                            desk_path = os.path.join(d, f)
+                            desk_id = f.replace(".desktop", "")
+                            if shutil.which("gtk-launch"):
+                                subprocess.Popen(["gtk-launch", desk_id], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            elif shutil.which("gio"):
+                                subprocess.Popen(["gio", "launch", desk_path], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            else:
+                                subprocess.Popen(["xdg-open", desk_path], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Launched {app_name}"}
+
         full_cmd = [app_clean] + (args or [])
         subprocess.Popen(full_cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Launched {app_name}"}

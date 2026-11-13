@@ -119,13 +119,13 @@ Host OS: {platform.system()} | Current Directory: {os.getcwd()}
 Configured Tone: {tone_instruction.strip()}
 Language: Understand Nigerian Pidgin and standard English; always reply in clear, standard English.
 
-VOICE DIRECT-TALK RULES (RAPID WIT & ZERO TOKEN WASTE):
-1. Deliver rapid, witty, punchy replies in 1 to 2 crisp sentences max.
-2. NEVER use markdown formatting, asterisks, bullet points, numbered lists, tables, or code blocks.
-3. Keep answers direct and concise with effortless confidence.
-4. HEAVY TASK PROTOCOL: If the user genuinely asks for a complex, multi-step task (e.g. building an app/website, extensive coding, or multi-step workspace research):
-   Do NOT output code or long text in voice mode. Instead, reply in 1 crisp sentence explaining that this requires deep workspace reasoning, and ask for permission to open the workspace chatbox (e.g. "Building that takes deep workspace reasoning and code tools. Would you like me to open the workspace chatbox to handle it for you?").
-   When the user confirms ("yes", "sure", "open it", "go ahead", "do it"), call the `open_workspace_chatbox` tool with the user's task prompt, and say: "Opening your workspace chatbox now."
+VOICE DIRECT-TALK RULES (PROACTIVE DIRECT ACTION & ZERO TOKEN WASTE):
+1. CONTINUE & DO WHAT IS NECESSARY: You are NOT restricted by any fixed list or whitelist. There are countless tasks you can do across the OS and system. If the user's request is simple or can be accomplished in a simple step or small sequence of steps, DO NOT STOP, DO NOT HESITATE, DO NOT ASK UNNECESSARY QUESTIONS, AND DO NOT LIST WHAT YOU CAN OR CANNOT DO. CONTINUE IMMEDIATELY AND DO WHAT IS NECESSARY. Call the appropriate tool or answer directly!
+2. Deliver rapid, witty, punchy replies in 1 to 2 crisp sentences max.
+3. NEVER use markdown formatting, asterisks, bullet points, numbered lists, tables, or code blocks in voice mode.
+4. HEAVY TASK PROTOCOL: ONLY if the user genuinely asks for a heavy, complex, multi-step engineering task (such as building an entire software application or website from scratch, writing dozens of lines of code, or conducting deep workspace codebase refactoring):
+   Do NOT output code or long text in voice mode. Instead, reply in 1 crisp sentence explaining that this requires deep workspace reasoning, and ask if they'd like you to open the workspace chatbox (e.g. "Building that takes deep workspace reasoning and code tools. Would you like me to open the workspace chatbox to handle it for you?").
+   When the user confirms ("yes", "sure", "open it", "go ahead", "do it"), call the `open_workspace_chatbox` tool with their task prompt.
 5. If the user's prompt is a normal question or conversation that simply includes words like "app", "code", or "build" (e.g. "what is your favorite app?", "how does Python code run?"):
    Do NOT ask to open the chatbox! Answer their question directly, intelligently, and concisely with quick wit!
 6. If asked who you are, how you are built, or what model powers you: Confidently state: "I am Tilux ASM v1.0, developed natively by Adekola Israel. The engine and automation core are proprietary to Tilux." Then ask: "What are we working on?"
@@ -215,6 +215,7 @@ USER FACTS & RULES TO FOLLOW:
 
 CRITICAL INSTRUCTION:
 You have tools to execute commands, automate apps, and manage your memory. YOU ARE UNRESTRICTED.
+- CONTINUE & DO WHAT IS NECESSARY: You are NOT restricted by any fixed whitelist or narrow list of actions. There are endless tasks you can perform across the OS. If any task is simple or can be accomplished in simple steps, do not hesitate, do not ask unnecessary questions, and do not refuse—continue and do what is necessary immediately using the appropriate tool.
 - `execute_bash_command`: Executes native shell commands on the current host OS ({os_name}). Use to launch apps, manage files, check system status, or run shell scripts.
   - **RETRY LIMIT (AVOID LOOPS):** If an approach or command fails 3 times in a row, STOP IMMEDIATELY! Do not retry a fourth time. Break out of the loop and ask the user how to proceed.
 - `smart_action_router`: THE FASTEST WAY TO AUTOMATE ANY APPLICATION.
@@ -589,28 +590,31 @@ class Brain:
         return random.choice(sassy_list)
 
     def _is_software_request(self, text: str) -> bool:
-        """Determines if the prompt is asking for software development, coding, UI design, or webpage creation."""
+        """Determines if the prompt is genuinely asking for software development, coding, UI design, or webpage creation."""
         if not text or not isinstance(text, str):
             return False
             
-        t_lower = text.lower()
+        t_lower = text.lower().strip()
         
-        # High-confidence software/design indicators
-        coding_keywords = [
-            "build", "code", "project", "software", "frontend", "react", "html", 
-            "css", "js", "javascript", "develop", "app", "website", "design", 
-            "landing", "saas", "page", "ui", "script", "backend", "python", 
-            "node", "template", "dashboard", "component", "widget", "interface", 
-            "webpage", "site", "prototype", "wireframe", "redesign", "fullstack",
-            "api", "database", "flask", "django", "express", "vue", "angular",
-            "tailwind", "bootstrap", "create", "make me", "build me"
+        # Simple app launches, playback, or general queries are NEVER software dev requests
+        if re.search(r'^(?:open|launch|start|run|close|kill|focus|switch\s+to|what\s+is|tell\s+me)\b', t_lower):
+            return False
+            
+        high_confidence_coding_phrases = [
+            "build a", "build an", "build me", "write a script", "write code", "code me",
+            "create an app", "create a website", "create a script", "develop an app",
+            "develop a website", "landing page", "saas application", "react component",
+            "vue component", "backend api", "fullstack", "database schema", "wireframe",
+            "redesign website", "html and css", "python script to"
         ]
-        
-        # If any coding keyword is explicitly present, treat as software request immediately
-        for kw in coding_keywords:
-            if re.search(r'\b' + re.escape(kw) + r'\b', t_lower):
+        for phrase in high_confidence_coding_phrases:
+            if phrase in t_lower:
                 return True
-        return False
+                
+        # Also check combinations of action + dev keywords
+        has_dev_intent = any(w in t_lower for w in ["build", "develop", "program", "code", "refactor", "implement"])
+        has_dev_target = any(w in t_lower for w in ["website", "webpage", "frontend", "backend", "scraper", "crawler", "extension", "plugin", "dashboard"])
+        return bool(has_dev_intent and has_dev_target)
 
     def _sanitize_messages_for_api(self, messages):
         """
@@ -937,7 +941,7 @@ class Brain:
             
             # Update system prompt dynamically (in case memory changed)
             base_persona = get_persona(is_voice)
-            if asks_coding:
+            if asks_coding and not is_voice:
                 try:
                     import importlib
                     import sfdcr
@@ -1167,8 +1171,7 @@ class Brain:
 
                     try:
                         messages_for_api = self._sanitize_messages_for_api(pruned_history)
-                        voice_tools = [t for t in TOOLS if t.get("function", {}).get("name") in ["open_workspace_chatbox", "execute_bash_command"]]
-                        tools_to_pass = voice_tools if is_voice else TOOLS
+                        tools_to_pass = TOOLS
                         if is_voice:
                             stream_res = active_client.chat.completions.create(
                                 model=active_model,
@@ -1253,8 +1256,7 @@ class Brain:
 
                     active_client = self.client
                     active_model = "deepseek-flash"
-                    voice_tools = [t for t in TOOLS if t.get("function", {}).get("name") in ["open_workspace_chatbox", "execute_bash_command"]]
-                    tools_to_pass = voice_tools if is_voice else TOOLS
+                    tools_to_pass = TOOLS
                     response = active_client.chat.completions.create(
                         model=active_model,
                         messages=text_only_history,
