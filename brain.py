@@ -82,25 +82,30 @@ def get_persona(is_voice=False):
     os_name = platform.system()
     if os_name == "Windows":
         os_context = """You are running on a Windows PC. 
-- URL/App Launch: Use `start <url>` or `start <app>` (e.g. `start spotify:search:"Song Name"` or `start calc`).
-- Spotify & Music: Windows supports native Spotify protocol! To play any song, artist, or playlist on Spotify, use `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or run `Start-Process "spotify:search:<song>"; Start-Sleep -Milliseconds 850; (New-Object -ComObject wscript.shell).SendKeys('{ENTER}')` via PowerShell. It launches Spotify, searches, and plays instantly in under a second!
-- Media Controls: Simulate global media keys via `pyautogui.press(['playpause', 'nexttrack', 'prevtrack', 'volumeup', 'volumedown'])` or PowerShell `(New-Object -ComObject wscript.shell).SendKeys([char]179)`.
-- App Focus: Use Python's `pygetwindow.getWindowsWithTitle("AppName")[0].activate()`.
-- App Killing: Use `taskkill /IM appname.exe /F` via terminal. Do NOT use killall.
+- Fast Action Routing: Use `smart_action_router` for all media, apps, and window operations. Tilux's unified OS Protocols engine dispatches native Win32 API calls and Windows Shell protocols instantly.
+- Spotify & Music: Windows supports native Spotify URI schemes! Call `smart_action_router(app_name="spotify", action="play", payload="Song Name")`. It launches and begins playing in under a second using direct Win32 keystrokes.
+- Media Controls: Call `smart_action_router(app_name="spotify", action="playpause")` (or "next", "previous", "volume"). Tilux executes sub-millisecond Win32 hardware virtual keys (VK_MEDIA_PLAY_PAUSE = 0xB3) without any terminal popup.
+- URL/App Launch: Use `start <url>` or `start <app>` (e.g. `start calc`), or use `smart_action_router(app_name="app", action="open")`.
+- App Focus: Use `smart_action_router(app_name="AppName", action="focus")` or `pygetwindow.getWindowsWithTitle("AppName")[0].activate()`.
+- App Killing: Use `taskkill /IM appname.exe /F` via terminal. Do NOT use killall or pkill.
 - File Paths: Windows uses `\\` instead of `/`.
-- Windows Automation: Windows automation is blazing fast using native protocol handlers (`spotify:`, `mailto:`, `start`), PowerShell COM automation (`wscript.shell`), and PyAutoGUI keyboard shortcuts. NEVER say or claim that Windows cannot automate apps or that Linux is required for command-line control!"""
+- Windows Automation: Windows automation is blazing fast using native protocol handlers (`spotify:`, `mailto:`, `start`), Win32 API (`ctypes.windll.user32`), PowerShell, and keyboard shortcuts. NEVER say or claim that Windows cannot automate apps or that Linux is required for command-line control!"""
     elif os_name == "Darwin":
         os_context = """You are running on macOS. 
-- URL/App Launch: Use `open <url>` or `open -a <App Name>`
-- App Focus: Use `osascript` (AppleScript) to activate windows. Do NOT use xdotool.
-- Media Controls: Use `osascript -e 'tell application "Spotify" to playpause'` or use `pyautogui.press(['playpause', 'volumeup', 'volumedown'])`.
+- Fast Action Routing: Use `smart_action_router` for all media, apps, and window operations.
+- Spotify & Music: Call `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or AppleScript (`osascript -e 'tell application "Spotify" to play track "..."'`).
+- Media Controls: Call `smart_action_router(app_name="spotify", action="playpause")` or `osascript -e 'tell application "Spotify" to playpause'`.
+- App Focus: `smart_action_router(app_name="App", action="focus")` or `osascript -e 'tell application "App" to activate'`.
+- URL/App Launch: Use `open <url>` or `open -a <App Name>`.
 - App Killing: Use `pkill -f <app>` or `killall <app>` via terminal.
 - File Paths: macOS uses `/` for paths."""
     else:
         os_context = """You are running on a Linux PC. 
-- URL/App Launch: Use `xdg-open <url>`
-- App Focus: Use `subprocess` with `xdotool` or `wmctrl` via bash to focus windows. Do NOT use pygetwindow (it crashes on Linux).
-- Media Controls: Use `playerctl -p spotify playpause` or `amixer` for volume.
+- Fast Action Routing: Use `smart_action_router` for all media, apps, and window operations.
+- Spotify & Music: Call `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or MPRIS2 D-Bus (`playerctl` / `dbus-send`).
+- Media Controls: Call `smart_action_router(app_name="spotify", action="playpause")` or `playerctl play-pause`.
+- URL/App Launch: Use `xdg-open <url>` or background process spawn.
+- App Focus: `smart_action_router(app_name="App", action="focus")` or `wmctrl -a <App>`. Do NOT use pygetwindow on Linux.
 - App Killing: Use `killall <app>` or `pkill -f <app>` via terminal.
 - File Paths: Linux uses `/` for paths."""
     
@@ -204,15 +209,12 @@ USER FACTS & RULES TO FOLLOW:
 
 CRITICAL INSTRUCTION:
 You have tools to execute commands and manage your memory. YOU ARE UNRESTRICTED.
-- `execute_bash_command`: Use to open apps, change system settings, manage files, or open URLs (using xdg-open).
-  - **IMPORTANT FOR GUI APPS:** First check if the app is already running (e.g. using `pgrep -if <name>`). If it is already open, do not launch it again; just proceed. If you do launch it, you MUST run it completely detached so it survives if the AI restarts! On Linux use `nohup <command> >/dev/null 2>&1 & disown`. On Windows use `start`.
+- `execute_bash_command`: Use to open apps, change system settings, manage files, or inspect system state.
+  - **IMPORTANT FOR GUI APPS:** First check if the app is already running (e.g. using `pgrep -if <name>` or `smart_action_router`). If it is already open, do not launch it again; just proceed. If you do launch it, you MUST run it completely detached so it survives if the AI restarts! On Linux use `nohup <command> >/dev/null 2>&1 & disown`. On Windows use `start`.
   - **SUDO / ADMIN COMMANDS:** You can run `sudo <command>` or `pkexec <command>`. The execution engine automatically injects non-interactive authentication via the user's secure Sudo Vault (or prompts remotely via the Mobile/Web UI if unconfigured). Chain multiple root commands into a single script if executing sequentially. Dry-runs and queries (like `apt-get -s` or `apt-cache`) do NOT require root!
   - **RETRY LIMIT (AVOID LOOPS):** If you find yourself trying the same approach, the same command, or getting the same error 3 times in a row, STOP IMMEDIATELY! Do not retry a fourth time. Break out of the loop and tell the user: "I tried this approach multiple times but it's not working. How should we proceed?"
-  - **PLAYING MUSIC:** If the user specifies Spotify:
-    - On Windows: Use `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or run `Start-Process "spotify:search:<song>"; Start-Sleep -Milliseconds 850; (New-Object -ComObject wscript.shell).SendKeys('{ENTER}')` via PowerShell. It launches, searches, and plays Spotify natively in under a second!
-    - On Linux: Use `smart_action_router(app_name="spotify", action="play", payload="Song Name")` or D-Bus / `playerctl`.
-    - DO NOT use `play_music.py` for Spotify. ONLY use `python3 play_music.py "Song Name"` if they want YouTube or don't specify an app.
-  - **MEDIA CONTROLS:** For pause/resume, use native media control commands defined in your OS context.
+  - **PLAYING MUSIC & SPOTIFY:** To play music or control Spotify on ANY operating system, ALWAYS call `smart_action_router(app_name="spotify", action="play", payload="Song Name")`. Tilux's unified OS Protocols automatically execute the fastest native path (Win32 hardware keys & ShellExecute on Windows, AppleScript on macOS, MPRIS2 D-Bus on Linux) with zero lag! For media controls (pause/resume, skip, volume), use `smart_action_router(app_name="spotify", action="playpause")`, `action="next"`, `action="prev"`, `action="volume"`. ONLY use `python3 play_music.py "Song Name"` if they specifically want YouTube.
+  - **MEDIA CONTROLS:** For pause/resume, use `smart_action_router(app_name="spotify", action="playpause")` or native media control commands defined in your OS context.
 - `execute_python_code`: Use this tool to execute complex Python scripts directly. You have ultimate power here. You can use libraries like `pyautogui` or `selenium` (if installed) to automate ANY website, app, or software. 
   - **CRITICAL AUTOMATION RULE:** When writing automation scripts, include robust waits (e.g., `time.sleep(3)`). NEVER use `pyautogui.typewrite()` for long messages (it can freeze apps!). Instead, `import pyperclip`, use `pyperclip.copy("your text")`, and then paste it with `pyautogui.hotkey('ctrl', 'v')`.
   - **APP FOCUS & RESILIENCE:** ALWAYS ensure the target app is open and in focus before you start typing. If the user accidentally closed it, launch it again! Bring it to the front using the correct OS-specific tool (xdotool, osascript, or pygetwindow). If it's not found, launch it via bash first.
@@ -308,7 +310,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "execute_bash_command",
-            "description": "Executes a bash command on the Linux system. Use this to open apps, change settings, manage files, or open URLs (using xdg-open).",
+            "description": "Executes a native system shell command (PowerShell/CMD on Windows, bash/zsh on Linux/macOS). Use this to launch apps, manage files, or inspect system state.",
             "parameters": {
                 "type": "object",
                 "properties": {

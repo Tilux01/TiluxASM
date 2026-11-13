@@ -77,13 +77,13 @@ def get_sudo_password():
 
 def execute_bash_command(command: str) -> str:
     """
-    Executes a bash command on the Linux system.
-    Use this to open apps, change settings, manage files, or open URLs (using xdg-open).
+    Executes a system shell command (PowerShell on Windows, bash on Linux/macOS).
+    Use this to open apps, manage files, or inspect system state.
     """
     dangerous_keywords = ['rm ', 'mkfs', 'dd ', 'sudo ', 'chmod -R', 'chown -R']
     
     # Check God Mode state
-    import json, os
+    import json, os, platform
     god_mode = False
     if os.path.exists("settings.json"):
         try:
@@ -103,6 +103,10 @@ def execute_bash_command(command: str) -> str:
         return f"SECURITY ALERT: The command `{command}` is considered dangerous. You MUST stop and explicitly ask the user for permission in the chat. If they reply 'yes', you can re-run this command exactly by prefixing it with 'I_HAVE_USER_APPROVAL ' (e.g. 'I_HAVE_USER_APPROVAL {command}')."
             
     try:
+        if platform.system() == "Windows":
+            from os_protocols import WindowsProtocol
+            return WindowsProtocol.execute_command(command)
+
         # Properly detach background tasks so they don't block or die on script exit
         if command.strip().endswith("&"):
             cmd_clean = command.strip()[:-1].strip()
@@ -472,72 +476,50 @@ def smart_action_router(app_name: str, action: str, payload: str = "") -> str:
     app_lower = app_name.lower().strip()
     action_lower = action.lower().strip()
     
-    # Tier 1: Spotify via native OS mechanisms (Windows URI, macOS AppleScript, Linux D-Bus)
-    if "spotify" in app_lower:
-        import platform
-        curr_os = platform.system()
-        if curr_os == "Windows":
-            if payload and action_lower in ["play", "search", "open"]:
-                import urllib.parse
-                encoded_payload = urllib.parse.quote(payload)
-                ps_cmd = f'Start-Process "spotify:search:{encoded_payload}"; Start-Sleep -Milliseconds 850; (New-Object -ComObject wscript.shell).SendKeys("{{ENTER}}")'
-                subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=10)
-                return f"Playing '{payload}' on Spotify via Windows native protocol."
-            elif action_lower in ["next", "skip"]:
-                subprocess.run(["powershell", "-NoProfile", "-Command", "(New-Object -ComObject wscript.shell).SendKeys([char]176)"], capture_output=True, text=True, timeout=5)
-                return "Skipped Spotify track via Windows media control."
-            elif action_lower in ["prev", "previous"]:
-                subprocess.run(["powershell", "-NoProfile", "-Command", "(New-Object -ComObject wscript.shell).SendKeys([char]177)"], capture_output=True, text=True, timeout=5)
-                return "Returned to previous Spotify track via Windows media control."
-            else:
-                subprocess.run(["powershell", "-NoProfile", "-Command", "(New-Object -ComObject wscript.shell).SendKeys([char]179)"], capture_output=True, text=True, timeout=5)
-                return "Toggled Spotify playback via Windows media control."
-        elif curr_os == "Darwin":
-            if action_lower in ["next", "skip"]:
-                execute_bash_command('osascript -e \'tell application "Spotify" to next track\'')
-            elif action_lower in ["prev", "previous"]:
-                execute_bash_command('osascript -e \'tell application "Spotify" to previous track\'')
-            elif payload and action_lower in ["play", "search", "open"]:
-                execute_bash_command(f'open "spotify:search:{payload}"')
-            else:
-                execute_bash_command('osascript -e \'tell application "Spotify" to playpause\'')
-            return f"Executed Spotify action '{action}' on macOS."
-        else: # Linux
-            if payload and action_lower in ["play", "search", "open"]:
-                import urllib.parse
-                encoded_payload = urllib.parse.quote(payload)
-                cmd_res = execute_bash_command(f"dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.OpenUri string:'spotify:search:{encoded_payload}' 2>/dev/null || xdg-open 'spotify:search:{encoded_payload}' & disown")
-                return f"Executed Spotify search for '{payload}' via D-Bus OpenUri: {cmd_res}"
-            elif action_lower in ["play", "pause", "playpause", "toggle"]:
-                cmd_res = execute_bash_command("playerctl -p spotify play-pause 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.PlayPause")
-                return f"Executed Spotify toggle via D-Bus: {cmd_res}"
-            elif action_lower in ["next", "skip"]:
-                cmd_res = execute_bash_command("playerctl -p spotify next 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Next")
-                return f"Executed Spotify next via D-Bus: {cmd_res}"
-            elif action_lower in ["prev", "previous"]:
-                cmd_res = execute_bash_command("playerctl -p spotify previous 2>/dev/null || dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Previous")
-                return f"Executed Spotify previous via D-Bus: {cmd_res}"
+    from os_protocols import OSProtocols
 
-    # Tier 1: VS Code / Code editor via CLI
+    # Media & Spotify via Native OS Protocols
+    if any(m in app_lower for m in ["spotify", "music", "media", "player"]):
+        if payload and action_lower in ["play", "search", "open"]:
+            res = OSProtocols.play_spotify(payload)
+            return res.get("output", f"Playing '{payload}' on Spotify.")
+        elif action_lower in ["next", "skip"]:
+            res = OSProtocols.media_next()
+            return res.get("output", "Skipped to next track.")
+        elif action_lower in ["prev", "previous"]:
+            res = OSProtocols.media_prev()
+            return res.get("output", "Returned to previous track.")
+        elif action_lower in ["volume", "set_volume"]:
+            raw_v = "".join(c for c in payload if c.isdigit()) or "80"
+            res = OSProtocols.media_set_volume(int(raw_v))
+            return res.get("output", f"Set volume to {raw_v}%.")
+        else:
+            res = OSProtocols.media_play_pause()
+            return res.get("output", "Toggled media playback.")
+
+    # Code Editor / VS Code
     if "code" in app_lower or "vscode" in app_lower:
         if action_lower in ["open_file", "open_folder", "launch"] and payload:
-            cmd_res = execute_bash_command(f"code {payload} & disown")
-            return f"Opened {payload} in VS Code via CLI: {cmd_res}"
+            res = OSProtocols.open_app("code", [payload])
+            return res.get("output", f"Opened {payload} in VS Code.")
 
-    # Tier 1: Web Browsers via Cross-Platform Opener
+    # Web Browsers via Cross-Platform Opener
     if any(b in app_lower for b in ["chrome", "browser", "firefox", "brave", "edge", "google"]):
         if action_lower in ["open_url", "navigate", "search"]:
-            import urllib.parse, webbrowser, platform
-            if payload.startswith("http"):
-                target_url = payload
-            else:
-                target_url = f"https://www.google.com/search?q={urllib.parse.quote(payload)}"
-            if platform.system() == "Linux":
-                cmd_res = execute_bash_command(f"xdg-open '{target_url}' & disown")
-            else:
-                webbrowser.open(target_url)
-                cmd_res = "Opened via browser loader"
-            return f"Opened URL: {cmd_res}"
+            target_url = payload if payload.startswith("http") else f"https://www.google.com/search?q={urllib.parse.quote(payload)}"
+            res = OSProtocols.open_url(target_url)
+            return res.get("output", f"Opened URL: {target_url}")
+
+    # Direct App Launching
+    if action_lower in ["launch", "open", "start"]:
+        res = OSProtocols.open_app(app_name, [payload] if payload else None)
+        return res.get("output", f"Launched {app_name}.")
+
+    # Direct Window Focus
+    if action_lower in ["focus", "activate", "switch_to"]:
+        res = OSProtocols.focus_window(app_name)
+        if res.get("status") == "success":
+            return res.get("output", f"Focused {app_name}.")
 
     # Tier 2: Generic Window Focus + Shortcut / Clipboard Injection Boilerplate
     python_script = f"""import pyautogui, pyperclip, subprocess, time, platform

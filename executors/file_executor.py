@@ -1,25 +1,32 @@
 import sys
+import os
 import json
-import subprocess
+
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from os_protocols import OSProtocols
 
 def run_file_task(data: dict) -> dict:
-    import platform
-    os_type = platform.system()
-    action = data.get("action", "open").lower()
-    path = data.get("path", "")
+    """
+    Executes file and code editor tasks using centralized native OS protocols.
+    """
+    action = data.get("action", "open").lower().strip()
+    path = data.get("path", "").strip()
     
     if action == "open_code":
-        cmd = f'code "{path}"'
+        res = OSProtocols.open_app("code", [path] if path else None)
     else:
-        if os_type == "Linux":
-            cmd = f"xdg-open '{path}' & disown"
-        elif os_type == "Darwin": # macOS
-            cmd = f"open '{path}'"
-        else: # Windows
-            cmd = f'cmd /c start "" "{path}"'
+        res = OSProtocols.open_url(path)
 
-    res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    return {"status": "success", "action": action, "path": path}
+    return {
+        "status": res.get("status", "success"),
+        "os": res.get("os", ""),
+        "action": action,
+        "path": path,
+        "output": res.get("output", "")
+    }
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

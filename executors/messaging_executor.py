@@ -3,8 +3,14 @@ import json
 import time
 import os
 import subprocess
-
 import tempfile
+
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from os_protocols import OSProtocols
+
 LOG_DIR = os.environ.get("TILUX_USER_DATA_DIR") or tempfile.gettempdir()
 FAILURE_LOG = os.path.join(LOG_DIR, "failure_log.json")
 
@@ -23,8 +29,11 @@ def log_failure(step: str, error: str, context: dict):
         except Exception:
             logs = []
     logs.append(entry)
-    with open(FAILURE_LOG, "w") as f:
-        json.dump(logs, f, indent=4)
+    try:
+        with open(FAILURE_LOG, "w") as f:
+            json.dump(logs[-50:], f, indent=4)
+    except Exception:
+        pass
 
 def run_messaging_task(data: dict) -> dict:
     contact = data.get("contact", "")
@@ -33,33 +42,13 @@ def run_messaging_task(data: dict) -> dict:
     
     context = {"contact": contact, "message": message, "app": app}
     
-    # Layer 0: OS Ground-Truth Window Query (Cross-Platform)
-    import platform
-    os_type = platform.system()
+    # Layer 0: OS Ground-Truth Window Query & Launch via Native OS Protocols
     try:
-        window_found = False
-        if os_type == "Linux":
-            cmd = "xdotool search --onlyvisible --class 'Whatsapp' 2>/dev/null || wmctrl -l | grep -i whatsapp"
-            res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if res.stdout.strip():
-                window_found = True
-            if not window_found:
-                subprocess.Popen(["xdg-open", "https://web.whatsapp.com"], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(3)
-            subprocess.run(["wmctrl", "-a", "WhatsApp"], capture_output=True)
-        elif os_type == "Darwin": # macOS
-            subprocess.Popen(["open", "https://web.whatsapp.com"], start_new_session=True)
-            time.sleep(2)
-            subprocess.run(["osascript", "-e", 'tell application "WhatsApp" to activate'], capture_output=True)
-        elif os_type == "Windows": # Windows
-            subprocess.Popen(["cmd", "/c", "start", "https://web.whatsapp.com"], shell=True)
-            time.sleep(2)
-            try:
-                import pygetwindow as gw
-                wins = gw.getWindowsWithTitle("WhatsApp")
-                if wins: wins[0].activate()
-            except Exception:
-                pass
+        focus_res = OSProtocols.focus_window("WhatsApp")
+        if focus_res.get("status") != "success":
+            OSProtocols.open_url("https://web.whatsapp.com")
+            time.sleep(2.5)
+            OSProtocols.focus_window("WhatsApp")
         time.sleep(0.3)
     except Exception as e:
         log_failure("layer_0_ground_truth", str(e), context)
@@ -77,7 +66,6 @@ def run_messaging_task(data: dict) -> dict:
         
     if has_ocr:
         ocr_start = time.time()
-        loaded = False
         try:
             with mss.MSS() as sct:
                 while time.time() - ocr_start < 4.0:
@@ -85,7 +73,6 @@ def run_messaging_task(data: dict) -> dict:
                     img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
                     text = pytesseract.image_to_string(img).lower()
                     if "search" in text or "chats" in text or "message" in text:
-                        loaded = True
                         break
                     time.sleep(0.8)
         except Exception:
@@ -140,7 +127,7 @@ def run_messaging_task(data: dict) -> dict:
                         pg.keyboard.press("Enter")
                         
                     return {"status": "success", "message": f"Successfully sent message to {contact} via Wayland CDP"}
-    except Exception as e:
+    except Exception:
         pass
 
     try:
@@ -163,8 +150,11 @@ def run_messaging_task(data: dict) -> dict:
         
         return {"status": "success", "message": f"Successfully sent message to {contact}"}
     except Exception as e:
-        import pyperclip
-        pyperclip.copy(message)
+        try:
+            import pyperclip
+            pyperclip.copy(message)
+        except Exception:
+            pass
         log_failure("layer_2_action", str(e), context)
         return {"status": "error", "message": f"Action failed: {str(e)}. Message text has been copied to your clipboard!"}
 

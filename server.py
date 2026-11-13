@@ -735,14 +735,13 @@ def trigger_action():
     if not verify_request_auth():
         return jsonify({"error": "Unauthorized"}), 401
     action = request.json.get("action")
+    from os_protocols import OSProtocols
     if action == "browser":
-        subprocess.Popen("xdg-open https://google.com", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        OSProtocols.open_url("https://google.com")
     elif action == "calculator":
-        subprocess.Popen("gnome-calculator", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        OSProtocols.open_app("calculator")
     elif action == "music":
-        # Launch youtube music in background via play_music wrapper
-        py_bin = sys.executable if sys.executable else "python3"
-        subprocess.Popen([py_bin, "play_music.py", "top hits"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        OSProtocols.play_spotify("top hits")
     elif action == "toggle_god_mode":
         state = request.json.get("state", False)
         import json, os
