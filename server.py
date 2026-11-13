@@ -143,15 +143,17 @@ def widget_speech_done_endpoint():
 
 @app.route("/api/widget_state", methods=["GET"])
 def widget_state_endpoint():
-    # Only mirror brain status if the brain is actively processing
+    # Mirror brain status if the brain is actively processing
     sub = WIDGET_STATE.get("sub_text", "")
-    if getattr(brain, "is_processing", False) and WIDGET_STATE.get("main_text") != "Listening...":
+    if getattr(brain, "is_processing", False) and WIDGET_STATE.get("main_text") not in ["Listening...", "Speaking..."]:
         b_status = getattr(brain, "current_status", "")
         if b_status:
             sub = b_status
     return jsonify({
         "main_text": WIDGET_STATE.get("main_text", ""),
         "sub_text": sub,
+        "thought_text": getattr(brain, "current_thought", "") or WIDGET_STATE.get("thought_text", ""),
+        "command_text": getattr(brain, "current_command", "") or WIDGET_STATE.get("command_text", ""),
         "speak_text": WIDGET_STATE.get("speak_text", ""),
         "speak_id": WIDGET_STATE.get("speak_id", 0),
         "is_speaking": WIDGET_STATE.get("is_speaking", False),
@@ -235,22 +237,17 @@ def _on_wake_word(initial_phrase=""):
                 WIDGET_STATE["speak_id"] = time.time()
                 
                 if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                    from voice import set_tts_speaking
-                    set_tts_speaking(True, wake_greeting)
-                    try:
-                        WIDGET_SPEECH_EVENT.clear()
-                        WIDGET_STATE["speak_text"] = wake_greeting
-                        word_count = len(wake_greeting.split())
-                        timeout_sec = max(1.2, (word_count * 0.25) + 0.5)
-                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
-                    finally:
-                        set_tts_speaking(False)
+                    WIDGET_SPEECH_EVENT.clear()
+                    WIDGET_STATE["speak_text"] = wake_greeting
+                    word_count = len(wake_greeting.split())
+                    timeout_sec = max(1.2, (word_count * 0.25) + 0.5)
+                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                 else:
                     speak(wake_greeting)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["sub_text"] = ""
-                time.sleep(0.35)
+                time.sleep(0.30)
 
             first_turn = True
             while not brain.abort_flag and is_voice_assistant_active:
@@ -305,21 +302,16 @@ def _on_wake_word(initial_phrase=""):
                         WIDGET_STATE["is_speaking"] = True
                         WIDGET_STATE["speak_id"] = time.time()
                         if WIDGET_CLIENT_CAPS.get("browser_tts", False):
-                            from voice import set_tts_speaking
-                            set_tts_speaking(True, reply_text)
-                            try:
-                                WIDGET_SPEECH_EVENT.clear()
-                                WIDGET_STATE["speak_text"] = reply_text
-                                timeout_sec = max(2.0, (len(reply_text.split()) * 0.25) + 1.0)
-                                WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
-                            finally:
-                                set_tts_speaking(False)
+                            WIDGET_SPEECH_EVENT.clear()
+                            WIDGET_STATE["speak_text"] = reply_text
+                            timeout_sec = max(2.0, (len(reply_text.split()) * 0.25) + 1.0)
+                            WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                         else:
                             speak(reply_text)
                     WIDGET_STATE["is_speaking"] = False
                     WIDGET_STATE["sub_text"] = ""
-                    WIDGET_STATE["main_text"] = "Listening..."
                     time.sleep(0.35)
+                    WIDGET_STATE["main_text"] = "Listening..."
                     continue
                 
                 # 3. Stream-to-Speech LLM Execution
@@ -362,21 +354,16 @@ def _on_wake_word(initial_phrase=""):
                     WIDGET_STATE["reply_text"] = reply_text
                     WIDGET_STATE["is_speaking"] = True
                     WIDGET_STATE["speak_id"] = time.time()
-                    from voice import set_tts_speaking
-                    set_tts_speaking(True, reply_text)
-                    try:
-                        WIDGET_SPEECH_EVENT.clear()
-                        WIDGET_STATE["speak_text"] = reply_text
-                        word_count = len(clean_widget_text.split())
-                        timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
-                        WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
-                    finally:
-                        set_tts_speaking(False)
+                    WIDGET_SPEECH_EVENT.clear()
+                    WIDGET_STATE["speak_text"] = reply_text
+                    word_count = len(clean_widget_text.split())
+                    timeout_sec = max(3.0, (word_count * 0.28) + 1.2)
+                    WIDGET_SPEECH_EVENT.wait(timeout=timeout_sec)
                     
                 WIDGET_STATE["is_speaking"] = False
                 WIDGET_STATE["sub_text"] = ""
-                WIDGET_STATE["main_text"] = "Listening..."
                 time.sleep(0.35)
+                WIDGET_STATE["main_text"] = "Listening..."
         finally:
             WIDGET_STATE["main_text"] = ""
             WIDGET_STATE["sub_text"] = ""
@@ -1215,6 +1202,16 @@ def api_tts():
     return send_file(io.BytesIO(audio_bytes), mimetype="audio/mpeg")
 
 def on_brain_event_update(events, status, session_id=None):
+    global WIDGET_STATE
+    if is_voice_assistant_active:
+        if status:
+            WIDGET_STATE["sub_text"] = status
+        cmd = getattr(brain, "current_command", "")
+        if cmd:
+            WIDGET_STATE["command_text"] = cmd
+        th = getattr(brain, "current_thought", "")
+        if th:
+            WIDGET_STATE["thought_text"] = th
     socketio.emit("agent_events", {"events": events, "status": status, "session_id": session_id})
 
 brain.on_event_update = on_brain_event_update

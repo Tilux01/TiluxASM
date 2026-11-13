@@ -144,6 +144,66 @@
             padding: 0 4px;
             transition: color 0.15s ease;
         }
+
+        .badge-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 2px 0 5px 0;
+            max-width: 96%;
+            transition: all 0.2s ease;
+        }
+
+        .action-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 12px;
+            border-radius: 9999px;
+            font-size: 11.5px;
+            font-weight: 500;
+            font-family: 'Outfit', monospace;
+            backdrop-filter: blur(12px);
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            transition: all 0.25s ease;
+        }
+
+        .action-badge.thinking {
+            background: rgba(139, 92, 246, 0.16);
+            border: 1px solid rgba(192, 132, 252, 0.45);
+            color: #d8b4fe;
+            box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
+            animation: pulse-glow 1.5s infinite alternate ease-in-out;
+        }
+
+        .action-badge.command {
+            background: rgba(14, 165, 233, 0.2);
+            border: 1px solid rgba(56, 189, 248, 0.55);
+            color: #38bdf8;
+            box-shadow: 0 0 14px rgba(56, 189, 248, 0.35);
+            animation: pulse-glow 1.0s infinite alternate ease-in-out;
+        }
+
+        .action-badge.success {
+            background: rgba(16, 185, 129, 0.16);
+            border: 1px solid rgba(52, 211, 153, 0.45);
+            color: #34d399;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+        }
+
+        .action-badge.speaking {
+            background: rgba(192, 132, 252, 0.16);
+            border: 1px solid rgba(192, 132, 252, 0.45);
+            color: #f3e8ff;
+        }
+
+        @keyframes pulse-glow {
+            0% { opacity: 0.85; transform: scale(0.99); }
+            100% { opacity: 1; transform: scale(1.01); }
+        }
     </style>
 </head>
 <body>
@@ -156,6 +216,12 @@
     
     <div class="text-container">
         <div id="main-text"></div>
+        <div id="badge-container" class="badge-container" style="display: none;">
+            <div id="action-badge" class="action-badge">
+                <span id="badge-icon" class="badge-icon">⚡</span>
+                <span id="badge-text" class="badge-text"></span>
+            </div>
+        </div>
         <div id="sub-text"></div>
     </div>
     
@@ -326,9 +392,20 @@
                     }, 2500);
                 }
 
-                // 2. Text rendering:
-                // When speaking, main-text changes from user transcription to "Speaking..." and sub-text shows the answer preview
+                const badgeContainer = document.getElementById('badge-container');
+                const badgeEl = document.getElementById('action-badge');
+                const badgeIcon = document.getElementById('badge-icon');
+                const badgeText = document.getElementById('badge-text');
+
+                // Determine active badge state based on live server data
+                const cmd = (data.command_text || "").trim();
+                const th = (data.thought_text || "").trim();
+                const sub = (data.sub_text || "").trim();
+                const sLower = sub.toLowerCase();
+
+                // 2. Text & Badge rendering:
                 if (data.is_speaking || data.main_text === "Speaking...") {
+                    if (badgeContainer) badgeContainer.style.display = "none";
                     if (mainEl && mainEl.innerText !== "Speaking...") {
                         mainEl.innerText = "Speaking...";
                     }
@@ -336,21 +413,73 @@
                         subEl.innerText = data.reply_text || data.sub_text || "";
                         subEl.style.color = "#c084fc";
                     }
+                } else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
+                    if (badgeContainer) badgeContainer.style.display = "none";
+                    if (mainEl && mainEl.innerText !== data.main_text) {
+                        mainEl.innerText = data.main_text;
+                    }
+                    if (subEl) {
+                        subEl.innerText = "";
+                    }
                 } else {
-                    if (mainEl && data.main_text !== fullMainText) {
+                    // Processing / Thinking / Running Command
+                    if (mainEl && data.main_text && data.main_text !== fullMainText) {
                         fullMainText = data.main_text;
                         mainEl.innerText = fullMainText;
                     }
-                    if (subEl) {
-                        const sub = data.sub_text || "";
-                        subEl.innerText = sub;
-                        const sLower = sub.toLowerCase();
-                        if (sLower.includes("bash:") || sLower.includes("running:") || sLower.includes("smart routing") || sLower.includes("executing") || sLower.includes("automating")) {
-                            subEl.style.color = "#38bdf8"; // Bright cyan for active tool commands
-                        } else if (sLower.includes("thinking") || sLower.includes("transcribing")) {
-                            subEl.style.color = "#a78bfa"; // Soft purple for thinking
+
+                    // Dynamic Live Badge Update: shows real reason and executed commands
+                    if (badgeContainer && badgeEl && badgeIcon && badgeText) {
+                        if (sLower.startsWith("running:") || sLower.startsWith("bash:") || sLower.startsWith("automating")) {
+                            badgeContainer.style.display = "flex";
+                            badgeEl.className = "action-badge command";
+                            badgeIcon.innerText = "⚡";
+                            const cleanCmd = sub.replace(/^running:\s*/i, '').replace(/^bash:\s*/i, '');
+                            badgeText.innerText = cleanCmd || cmd || "Executing command...";
+                            if (subEl) {
+                                subEl.innerText = "Executing action on desktop...";
+                                subEl.style.color = "#38bdf8";
+                            }
+                        } else if (sLower.startsWith("ran:") || sLower.startsWith("done:") || sLower.includes("completed")) {
+                            badgeContainer.style.display = "flex";
+                            badgeEl.className = "action-badge success";
+                            badgeIcon.innerText = "✓";
+                            badgeText.innerText = sub;
+                            if (subEl) {
+                                subEl.innerText = "Command finished, preparing reply...";
+                                subEl.style.color = "#34d399";
+                            }
+                        } else if (sLower.startsWith("planning:")) {
+                            badgeContainer.style.display = "flex";
+                            badgeEl.className = "action-badge command";
+                            badgeIcon.innerText = "⚙️";
+                            badgeText.innerText = sub;
+                            if (subEl) {
+                                subEl.innerText = "Planning automated action...";
+                                subEl.style.color = "#38bdf8";
+                            }
+                        } else if (sLower.startsWith("thinking:") || th || sLower.includes("analyzing")) {
+                            badgeContainer.style.display = "flex";
+                            badgeEl.className = "action-badge thinking";
+                            badgeIcon.innerText = "🧠";
+                            const thinkContent = sub.replace(/^thinking:\s*/i, '') || th || "Formulating plan...";
+                            badgeText.innerText = thinkContent;
+                            if (subEl) {
+                                subEl.innerText = thinkContent;
+                                subEl.style.color = "#c084fc";
+                            }
+                        } else if (sub) {
+                            badgeContainer.style.display = "flex";
+                            badgeEl.className = "action-badge thinking";
+                            badgeIcon.innerText = "⚡";
+                            badgeText.innerText = sub;
+                            if (subEl) {
+                                subEl.innerText = sub;
+                                subEl.style.color = "#d1d5db";
+                            }
                         } else {
-                            subEl.style.color = "#d1d5db";
+                            badgeContainer.style.display = "none";
+                            if (subEl) subEl.innerText = "";
                         }
                     }
                 }

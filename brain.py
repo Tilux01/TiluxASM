@@ -546,6 +546,8 @@ class Brain:
             {"role": "system", "content": get_persona(is_voice=False)}
         ]
         self.current_status = ""
+        self.current_thought = ""
+        self.current_command = ""
         self.current_events = []
         self.on_event_update = None
 
@@ -927,7 +929,11 @@ class Brain:
                         "steps": [{"type": "error", "description": "Missing Brain Connection"}]
                     }
             
-            self.current_status = "Thinking about how to respond..."
+            clean_q = text.strip()
+            self.current_thought = f"Analyzing: {clean_q[:55]}"
+            self.current_command = ""
+            self.current_status = f"Thinking: {clean_q[:45]}..."
+            self.notify_event_update()
             self.current_events = []
             event_id = 1
             
@@ -1180,6 +1186,7 @@ class Brain:
                                 stream=True
                             )
                             collected_content = ""
+                            collected_reasoning = ""
                             tool_calls_dict = {}
                             sentence_buf = ""
                             import re as _re
@@ -1191,6 +1198,19 @@ class Brain:
                                 delta = chunk.choices[0].delta
                                 if not delta:
                                     continue
+
+                                # Live DeepSeek reasoning token capture
+                                r_chunk = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+                                if r_chunk:
+                                    collected_reasoning += r_chunk
+                                    r_lines = [ln.strip() for ln in collected_reasoning.strip().split("\n") if ln.strip()]
+                                    if r_lines:
+                                        last_r = r_lines[-1]
+                                        if len(last_r) > 3:
+                                            self.current_thought = last_r[-70:]
+                                            self.current_status = f"Thinking: {self.current_thought}"
+                                            self.notify_event_update()
+
                                 if delta.tool_calls:
                                     for tc in delta.tool_calls:
                                         idx = tc.index
@@ -1201,6 +1221,9 @@ class Brain:
                                         if tc.function:
                                             if tc.function.name:
                                                 tool_calls_dict[idx]["name"] += tc.function.name
+                                                fn_n = tool_calls_dict[idx]["name"]
+                                                self.current_status = f"Planning: {fn_n}"
+                                                self.notify_event_update()
                                             if tc.function.arguments:
                                                 tool_calls_dict[idx]["arguments"] += tc.function.arguments
                                 if delta.content:
@@ -1327,6 +1350,8 @@ class Brain:
                         if function_name == "open_workspace_chatbox":
                             p = args.get("prompt", "")
                             self.current_status = "Opening Workspace Chatbox..."
+                            self.current_command = "open_workspace_chatbox"
+                            self.notify_event_update()
                             try:
                                 import server
                                 server.trigger_open_chat(p)
@@ -1334,25 +1359,47 @@ class Brain:
                             except Exception as e:
                                 result = f"Error opening chatbox: {e}"
                             steps_taken.append("Opened workspace chatbox")
+                            self.current_status = "Workspace chatbox opened"
+                            self.notify_event_update()
                         elif function_name == "execute_bash_command":
                             cmd = args.get("command", "")
-                            self.current_status = f"Bash: {cmd[:60]}{'...' if len(cmd) > 60 else ''}"
+                            self.current_status = f"Running: {cmd[:55]}{'...' if len(cmd) > 55 else ''}"
+                            self.current_command = cmd
+                            self.notify_event_update()
+                            t_cmd0 = time.time()
                             result = execute_bash_command(cmd)
+                            cmd_dur = round(time.time() - t_cmd0, 2)
+                            self.current_status = f"Ran: {cmd[:45]} ({cmd_dur}s)"
+                            self.notify_event_update()
                             steps_taken.append(f"Executed command: {cmd}")
                         elif function_name == "execute_python_code":
-                            self.current_status = f"Executing Python Script..."
+                            code_raw = args.get("code", "").strip()
+                            code_snippet = code_raw.split("\n")[0][:45] if code_raw else "python"
+                            self.current_status = f"Running: {code_snippet}..."
+                            self.current_command = code_snippet
+                            self.notify_event_update()
+                            t_py0 = time.time()
                             result = execute_python_code(args.get("code", ""))
+                            py_dur = round(time.time() - t_py0, 2)
+                            self.current_status = f"Ran Python ({py_dur}s)"
+                            self.notify_event_update()
                             steps_taken.append(f"Executed Python code")
                         elif function_name == "save_to_memory":
                             self.current_status = f"Saving rule to memory..."
+                            self.current_command = "save_to_memory"
+                            self.notify_event_update()
                             result = save_to_memory(args.get("fact_or_rule", ""))
                             steps_taken.append(f"Saved to memory: {args.get('fact_or_rule', '')}")
                         elif function_name == "remove_from_memory":
                             self.current_status = f"Forgetting rule from memory..."
+                            self.current_command = "remove_from_memory"
+                            self.notify_event_update()
                             result = remove_from_memory(args.get("fact_or_rule", ""))
                             steps_taken.append(f"Removed from memory: {args.get('fact_or_rule', '')}")
                         elif function_name == "update_settings":
                             self.current_status = f"Updating app settings..."
+                            self.current_command = "update_settings"
+                            self.notify_event_update()
                             result = update_settings(
                                 ai_tone=args.get("ai_tone"),
                                 tts_enabled=args.get("tts_enabled"),
@@ -1363,18 +1410,28 @@ class Brain:
                             steps_taken.append(f"Updated settings: {result}")
                         elif function_name == "generate_image":
                             self.current_status = f"Generating Image..."
+                            self.current_command = f"generate_image: {args.get('prompt', '')[:40]}"
+                            self.notify_event_update()
                             result = generate_image(args.get("prompt", ""))
                             steps_taken.append(f"Generated image.")
                         elif function_name == "remove_image_background":
                             self.current_status = f"Processing image cutout..."
+                            self.current_command = "remove_image_background"
+                            self.notify_event_update()
                             result = remove_image_background(args.get("image_path_or_url", ""), args.get("output_path"))
                             steps_taken.append(f"Processed image background cutout.")
                         elif function_name == "smart_action_router":
                             app_n = args.get("app_name", "")
                             act = args.get("action", "")
                             payl = args.get("payload", "")
-                            self.current_status = f"Smart Routing for {app_n}..."
+                            self.current_status = f"Automating {app_n}: {act}"
+                            self.current_command = f"{app_n} -> {act}"
+                            self.notify_event_update()
+                            t_ar0 = time.time()
                             result = smart_action_router(app_n, act, payl)
+                            ar_dur = round(time.time() - t_ar0, 2)
+                            self.current_status = f"Done: {app_n} {act} ({ar_dur}s)"
+                            self.notify_event_update()
                             steps_taken.append(f"Smart Routed action for {app_n}: {act}")
                         elif function_name == "log_failed_action":
                             desc = args.get("action_description", "")
