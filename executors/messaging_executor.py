@@ -133,18 +133,21 @@ def run_messaging_task(data: dict) -> dict:
     try:
         import pyautogui
         import pyperclip
+        import platform
+        sys_os = platform.system()
+        mod = 'command' if sys_os == 'Darwin' else 'ctrl'
         
-        pyautogui.hotkey('ctrl', 'alt', '/')
+        pyautogui.hotkey(mod, 'alt', '/')
         time.sleep(0.2)
         
         pyperclip.copy(contact)
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(mod, 'v')
         time.sleep(0.5)
         pyautogui.press('enter')
         time.sleep(0.5)
         
         pyperclip.copy(message)
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(mod, 'v')
         time.sleep(0.2)
         pyautogui.press('enter')
         

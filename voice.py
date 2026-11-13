@@ -353,6 +353,9 @@ def terminate_active_audio():
     import platform, subprocess
     if platform.system() == "Windows":
         subprocess.run("taskkill /F /IM ffplay.exe /T 2>NUL || exit /b 0", shell=True)
+    elif platform.system() == "Darwin":
+        subprocess.run("pkill -9 ffplay 2>/dev/null || killall -9 ffplay 2>/dev/null || true", shell=True)
+        subprocess.run("pkill -9 say 2>/dev/null || killall -9 say 2>/dev/null || true", shell=True)
     else:
         subprocess.run("pkill -9 ffplay 2>/dev/null || killall -9 ffplay 2>/dev/null || true", shell=True)
         subprocess.run("spd-say -C 2>/dev/null || true", shell=True)

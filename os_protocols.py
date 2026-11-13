@@ -184,10 +184,20 @@ class WindowsProtocol:
         cmd = app_clean
         if app_clean in ["calculator", "calc"]:
             cmd = "calc.exe"
-        elif app_clean in ["notepad"]:
+        elif app_clean in ["notepad", "text", "notes"]:
             cmd = "notepad.exe"
-        elif app_clean in ["explorer", "files"]:
+        elif app_clean in ["explorer", "files", "file manager"]:
             cmd = "explorer.exe"
+        elif app_clean in ["settings", "system settings"]:
+            cmd = "ms-settings:"
+        elif app_clean in ["taskmanager", "task manager", "taskmgr"]:
+            cmd = "taskmgr.exe"
+        elif app_clean in ["terminal", "powershell"]:
+            cmd = "powershell.exe"
+        elif app_clean in ["cmd", "command prompt"]:
+            cmd = "cmd.exe"
+        elif app_clean in ["code", "vscode", "vs code"]:
+            cmd = "code"
 
         full_cmd = [cmd] + (args or []) if args else cmd
         if isinstance(full_cmd, list):
@@ -274,11 +284,35 @@ class WindowsProtocol:
             running = cls.is_app_running(target)
             return f"Process '{target}' is {'running' if running else 'not running'}."
 
+        # Handle detached background execution or Unix nohup
+        if clean_cmd.startswith("nohup "):
+            clean_cmd = clean_cmd.replace("nohup ", "").split(">/dev/null")[0].split("2>&1")[0].replace("& disown", "").replace("&", "").strip()
+            subprocess.Popen(f'cmd /c start "" {clean_cmd}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return f"App '{clean_cmd}' launched successfully in the background on Windows."
+
+        if clean_cmd.endswith("&"):
+            actual_cmd = clean_cmd[:-1].strip()
+            subprocess.Popen(f'cmd /c start "" {actual_cmd}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return "App launched successfully in the background on Windows."
+
+        # Unix pipeline translations for PowerShell
+        if " | grep " in clean_cmd:
+            clean_cmd = clean_cmd.replace(" | grep ", " | Select-String ")
+        if clean_cmd.startswith("which "):
+            target = clean_cmd.split(None, 1)[1].strip()
+            clean_cmd = f"Get-Command {target} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"
+        elif clean_cmd.startswith("touch "):
+            target = clean_cmd.split(None, 1)[1].strip()
+            clean_cmd = f"New-Item -ItemType File -Force {target}"
+
         # Execute through PowerShell for rich scripting support
         try:
             res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", clean_cmd],
                                  capture_output=True, text=True, timeout=120)
-            return res.stdout.strip() or res.stderr.strip() or "Command completed successfully."
+            output = res.stdout.strip() or res.stderr.strip() or "Command completed successfully."
+            if len(output) > 40000:
+                output = output[:40000] + "\n\n... [OUTPUT TRUNCATED BY SYSTEM TO PREVENT TOKEN OVERFLOW]"
+            return output
         except Exception as e:
             return f"Windows command execution failed: {str(e)}"
 
@@ -373,6 +407,16 @@ class MacOSProtocol:
             app_clean = "Spotify"
         elif app_clean in ["terminal"]:
             app_clean = "Terminal"
+        elif app_clean in ["settings", "system settings", "preferences"]:
+            app_clean = "System Settings"
+        elif app_clean in ["taskmanager", "task manager", "activity monitor"]:
+            app_clean = "Activity Monitor"
+        elif app_clean in ["finder", "files", "file manager"]:
+            app_clean = "Finder"
+        elif app_clean in ["code", "vscode", "vs code"]:
+            app_clean = "Visual Studio Code"
+        elif app_clean in ["notes", "notepad", "text"]:
+            app_clean = "Notes"
 
         cmd = ["open", "-a", app_clean]
         if args:
@@ -492,6 +536,29 @@ class LinuxProtocol:
                     return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Opened {cand}"}
             subprocess.Popen(["xdg-open", "https://google.com/search?q=calculator"], start_new_session=True)
             return {"status": "success", "os": "Linux", "action": "open_app", "output": "Opened web calculator"}
+        elif app_clean in ["settings", "system settings"]:
+            for cand in ["gnome-control-center", "systemsettings5", "xfce4-settings-manager"]:
+                if shutil.which(cand):
+                    subprocess.Popen([cand], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Opened {cand}"}
+        elif app_clean in ["taskmanager", "task manager", "system monitor"]:
+            for cand in ["gnome-system-monitor", "ksysguard", "htop"]:
+                if shutil.which(cand):
+                    subprocess.Popen([cand], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Opened {cand}"}
+        elif app_clean in ["files", "explorer", "file manager"]:
+            for cand in ["nautilus", "dolphin", "thunar", "pcmanfm"]:
+                if shutil.which(cand):
+                    subprocess.Popen([cand], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Opened {cand}"}
+        elif app_clean in ["terminal"]:
+            for cand in ["gnome-terminal", "konsole", "xfce4-terminal", "xterm"]:
+                if shutil.which(cand):
+                    subprocess.Popen([cand], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return {"status": "success", "os": "Linux", "action": "open_app", "output": f"Opened {cand}"}
+        elif app_clean in ["code", "vscode", "vs code"]:
+            subprocess.Popen(["code"] + (args or []), start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"status": "success", "os": "Linux", "action": "open_app", "output": "Opened VS Code"}
             
         full_cmd = [app_clean] + (args or [])
         subprocess.Popen(full_cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

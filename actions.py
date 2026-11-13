@@ -80,16 +80,39 @@ def execute_bash_command(command: str) -> str:
     Executes a system shell command (PowerShell on Windows, bash on Linux/macOS).
     Use this to open apps, manage files, or inspect system state.
     """
-    dangerous_keywords = ['rm ', 'mkfs', 'dd ', 'sudo ', 'chmod -R', 'chown -R']
-    
-    # Check God Mode state
     import json, os, platform
+    curr_os = platform.system()
+    
+    # OS-specific dangerous command detection
+    if curr_os == "Windows":
+        dangerous_keywords = [
+            'del ', 'del/', 'rd ', 'rd/', 'rmdir', 'erase ', 'format ', 'diskpart', 'stop-computer', 
+            'restart-computer', 'remove-item', 'rm ', 'reg delete', 'net user', 
+            'bcdedit', 'set-executionpolicy', 'drop database', 'shutdown'
+        ]
+    elif curr_os == "Darwin":
+        dangerous_keywords = [
+            'rm ', 'rmdir', 'mkfs', 'dd ', 'sudo ', 'chmod -r', 'chown -r', 
+            'shutdown', 'reboot', 'diskutil erasedisk', 'drop database'
+        ]
+    else: # Linux
+        dangerous_keywords = [
+            'rm ', 'rmdir', 'mkfs', 'dd ', 'sudo ', 'pkexec ', 'chmod -r', 
+            'chown -r', 'shutdown', 'reboot', 'fdisk', 'drop database'
+        ]
+    
+    # Check God Mode state across local and user-data directories
     god_mode = False
-    if os.path.exists("settings.json"):
-        try:
-            with open("settings.json", "r") as f:
-                god_mode = json.load(f).get("god_mode", False)
-        except: pass
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.environ.get("TILUX_USER_DATA_DIR") or base_dir
+    for cand in [os.path.join(data_dir, "settings.json"), os.path.join(base_dir, "settings.json")]:
+        if os.path.exists(cand):
+            try:
+                with open(cand, "r") as f:
+                    god_mode = json.load(f).get("god_mode", False)
+                    break
+            except Exception:
+                pass
         
     # Check if the AI has explicitly flagged that the user approved this command
     has_approval = False
@@ -97,17 +120,39 @@ def execute_bash_command(command: str) -> str:
         has_approval = True
         command = command.replace("I_HAVE_USER_APPROVAL ", "", 1)
         
-    is_dangerous = any(keyword in command for keyword in dangerous_keywords)
+    cmd_lower = command.lower()
+    is_dangerous = any(keyword in cmd_lower for keyword in dangerous_keywords)
     
     if is_dangerous and not has_approval:
-        return f"SECURITY ALERT: The command `{command}` is considered dangerous. You MUST stop and explicitly ask the user for permission in the chat. If they reply 'yes', you can re-run this command exactly by prefixing it with 'I_HAVE_USER_APPROVAL ' (e.g. 'I_HAVE_USER_APPROVAL {command}')."
+        return f"SECURITY ALERT: The command `{command}` is considered dangerous on {curr_os}. You MUST stop and explicitly ask the user for permission in the chat. If they reply 'yes', you can re-run this command exactly by prefixing it with 'I_HAVE_USER_APPROVAL ' (e.g. 'I_HAVE_USER_APPROVAL {command}')."
             
     try:
+        # 1. WINDOWS EXECUTION ROUTE
         if platform.system() == "Windows":
             from os_protocols import WindowsProtocol
             return WindowsProtocol.execute_command(command)
 
-        # Properly detach background tasks so they don't block or die on script exit
+        # 2. MACOS EXECUTION ROUTE
+        if platform.system() == "Darwin":
+            from os_protocols import MacOSProtocol
+            if "sudo " in command or command.startswith("sudo"):
+                sudo_pass = get_sudo_password()
+                if sudo_pass:
+                    if not command.startswith("sudo -S"):
+                        if "sudo " in command:
+                            cmd_parts = command.split("sudo ", 1)
+                            command = f"{cmd_parts[0]}sudo -S -p '' {cmd_parts[1]}"
+                        else:
+                            command = f"sudo -S -p '' {command}"
+                    result = subprocess.run(command, shell=True, input=f"{sudo_pass}\n", check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+                    output = result.stdout + result.stderr
+                    return output if output.strip() else "Command executed successfully."
+                else:
+                    return "AUTHENTICATION REQUIRED: This command requires administrator (sudo) privileges, but no PC Admin Password is set in Tilux Settings."
+            return MacOSProtocol.execute_command(command)
+
+        # 3. LINUX EXECUTION ROUTE
+        # Detach background tasks cleanly
         if command.strip().endswith("&"):
             cmd_clean = command.strip()[:-1].strip()
             subprocess.Popen(cmd_clean, shell=True, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -141,8 +186,8 @@ def execute_bash_command(command: str) -> str:
             else:
                 return (
                     "AUTHENTICATION REQUIRED: This command requires administrator (sudo) privileges, "
-                    "but no PC Sudo Password is set in Tilux Settings. "
-                    "Please ask the user to enter their PC Sudo Password in Settings or via the Remote Auth prompt."
+                    "but no PC Admin Password is set in Tilux Settings. "
+                    "Please ask the user to enter their PC Password in Settings or via the Remote Auth prompt."
                 )
         else:
             result = subprocess.run(command, shell=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
@@ -541,7 +586,8 @@ time.sleep(0.3)
         python_script += f"""
 # 2. Clipboard injection for payload
 pyperclip.copy("{payload}")
-pyautogui.hotkey('ctrl', 'v')
+mod_key = 'command' if sys_name == 'Darwin' else 'ctrl'
+pyautogui.hotkey(mod_key, 'v')
 """
     if "submit" in action_lower or "search" in action_lower:
         python_script += "pyautogui.press('enter')\n"
@@ -644,7 +690,10 @@ def execute_category_task(category: str, payload_json: str = "{}") -> str:
     if not os.path.exists(script_path):
         return f"Error: Category executor script {script_name} not found."
         
-    python_bin = sys.executable if sys.executable else ("./venv/bin/python" if os.path.exists("./venv/bin/python") else "python3")
+    is_win = platform.system() == "Windows"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_py = os.path.join(base_dir, "venv", "Scripts", "python.exe") if is_win else os.path.join(base_dir, "venv", "bin", "python")
+    python_bin = sys.executable or (venv_py if os.path.exists(venv_py) else "python")
     try:
         res = subprocess.run([python_bin, script_path, payload_json], capture_output=True, text=True, timeout=30)
         return res.stdout.strip() or res.stderr.strip() or "Category task executed successfully."
