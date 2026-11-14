@@ -6,21 +6,81 @@ import re
 import urllib.request
 import urllib.parse
 import tempfile
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 
 def clean_html_to_markdown(html_content: str, max_chars: int = 6000) -> str:
-    soup = BeautifulSoup(html_content, "html.parser")
-    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript", "svg", "iframe", "form"]):
-        tag.decompose()
-        
-    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+    if not html_content:
+        return ""
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html_content, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript", "svg", "iframe", "form"]):
+            tag.decompose()
+        title = soup.title.string.strip() if soup.title and soup.title.string else ""
+        text = soup.get_text(separator="\n", strip=True)
+    else:
+        title_m = re.search(r'<title[^>]*>(.*?)</title>', html_content, re.IGNORECASE | re.DOTALL)
+        title = title_m.group(1).strip() if title_m else ""
+        cleaned = re.sub(r'<(script|style|nav|footer|header|aside|svg|iframe|form)[^>]*>.*?</\1>', '', html_content, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r'<[^>]+>', ' ', cleaned)
+        text = re.sub(r'\s+', ' ', text).strip()
     
-    # Extract readable structured text
-    text = soup.get_text(separator="\n", strip=True)
     text = re.sub(r"\n{3,}", "\n\n", text)
-    
     result = f"# {title}\n\n{text}" if title else text
     return result[:max_chars]
+
+def get_browser_launch_targets(preferred: str = None) -> list:
+    """
+    Returns prioritized list of (engine_type, kwargs) to try for launch.
+    Supports Google Chrome, Microsoft Edge, Brave, Firefox, Opera, Vivaldi, and Chromium.
+    Cross-platform: Windows, macOS, and Linux.
+    """
+    targets = []
+    pref = (preferred or "").lower().strip()
+
+    # Detect Brave executable if present on the machine
+    brave_paths = []
+    if sys.platform == "win32":
+        for r in [os.environ.get("PROGRAMFILES", "C:\\Program Files"), os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)"), os.environ.get("LOCALAPPDATA", "")]:
+            if r:
+                brave_paths.append(os.path.join(r, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"))
+    elif sys.platform == "darwin":
+        brave_paths.append("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser")
+    else:
+        brave_paths.extend(["/usr/bin/brave-browser", "/usr/bin/brave", "brave-browser"])
+    brave_exe = next((p for p in brave_paths if os.path.exists(p)), None)
+
+    # 1. Preferred user request
+    if "firefox" in pref:
+        targets.append(("firefox", {}))
+    elif "brave" in pref and brave_exe:
+        targets.append(("chromium", {"executable_path": brave_exe}))
+    elif "edge" in pref:
+        targets.append(("chromium", {"channel": "msedge"}))
+    elif "chrome" in pref:
+        targets.append(("chromium", {"channel": "chrome"}))
+    elif "webkit" in pref or "safari" in pref:
+        targets.append(("webkit", {}))
+
+    # 2. Universal fallback hierarchy: Chrome -> Edge -> Brave -> Firefox -> Bundled Chromium
+    targets.append(("chromium", {"channel": "chrome"}))
+    targets.append(("chromium", {"channel": "msedge"}))
+    if brave_exe:
+        targets.append(("chromium", {"executable_path": brave_exe}))
+    targets.append(("firefox", {}))
+    targets.append(("chromium", {}))
+
+    # Deduplicate targets
+    seen = set()
+    unique = []
+    for eng, kw in targets:
+        k = (eng, tuple(sorted(kw.items())))
+        if k not in seen:
+            seen.add(k)
+            unique.append((eng, kw))
+    return unique
 
 def surf_search(query: str, max_results: int = 5) -> dict:
     """
@@ -186,17 +246,19 @@ def get_browser_user_data_dir(profile_name: str = "default") -> str:
         
         with sync_playwright() as p:
             context = None
-            for ch in ["chrome", "msedge", None]:
+            targets = get_browser_launch_targets()
+            for engine_type, extra_kwargs in targets:
                 try:
+                    engine = getattr(p, engine_type)
                     kwargs = {
                         "user_data_dir": user_data_dir,
                         "headless": True,
-                        "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                        "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"] if engine_type == "chromium" else ["--no-sandbox"]
                     }
-                    if ch:
-                        kwargs["channel"] = ch
-                    context = p.chromium.launch_persistent_context(**kwargs)
-                    break
+                    kwargs.update(extra_kwargs)
+                    context = engine.launch_persistent_context(**kwargs)
+                    if context:
+                        break
                 except Exception:
                     continue
             page = context.pages[0] if context.pages else context.new_page()
@@ -235,11 +297,12 @@ def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000, profile
     """
     Tier 2 Fast Web Automation:
     Executes form filling, clicking, and DOM inspection across Windows, macOS, and Linux.
+    Supports Chrome, Edge, Brave, Firefox, and Chromium.
     Preserves all policies:
       - Uses persistent profile directory so logins (Render, Vercel, etc.) stay logged in
       - Silent background first (headless)
       - Attaches to port 9222 CDP if active browser session is open
-      - Automatically detects installed Google Chrome or Microsoft Edge binaries
+      - Automatically detects installed Google Chrome, Microsoft Edge, Brave, or Firefox binaries
       - Resource blocking (aborts images/fonts) for maximum interaction speed
     """
     t0 = time.time()
@@ -262,7 +325,7 @@ def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000, profile
             context = None
             is_cdp = False
             
-            # Fast-path: Check for active Chrome/Edge CDP on port 9222 (instant connection)
+            # Fast-path: Check for active Chrome/Edge/Brave CDP on port 9222 (instant connection)
             try:
                 import urllib.request
                 with urllib.request.urlopen("http://localhost:9222/json/version", timeout=0.8) as cdp_check:
@@ -274,18 +337,19 @@ def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000, profile
                 pass
                 
             if not context:
-                launch_channels = [channel] if channel else ["chrome", "msedge", None]
-                for ch in launch_channels:
+                targets = get_browser_launch_targets(channel)
+                for engine_type, extra_kwargs in targets:
                     try:
+                        engine = getattr(p, engine_type)
                         kwargs = {
                             "user_data_dir": user_data_dir,
                             "headless": True,
-                            "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                            "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"] if engine_type == "chromium" else ["--no-sandbox"]
                         }
-                        if ch:
-                            kwargs["channel"] = ch
-                        context = p.chromium.launch_persistent_context(**kwargs)
-                        break
+                        kwargs.update(extra_kwargs)
+                        context = engine.launch_persistent_context(**kwargs)
+                        if context:
+                            break
                     except Exception:
                         continue
                 

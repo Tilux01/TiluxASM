@@ -557,7 +557,7 @@ def smart_action_router(app_name: str, action: str, payload: str = "") -> str:
             return res.get("output", f"Opened {payload} in VS Code.")
 
     # Web Browsers via Cross-Platform Opener
-    if any(b in app_lower for b in ["chrome", "browser", "firefox", "brave", "edge", "google"]):
+    if any(b in app_lower for b in ["chrome", "browser", "firefox", "brave", "edge", "google", "opera", "vivaldi", "safari"]):
         if action_lower in ["open_url", "navigate", "search"]:
             target_url = payload if payload.startswith("http") else f"https://www.google.com/search?q={urllib.parse.quote(payload)}"
             res = OSProtocols.open_url(target_url)

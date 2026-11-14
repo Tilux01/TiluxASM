@@ -628,8 +628,8 @@ TOOLS = [
                     },
                     "channel": {
                         "type": "string",
-                        "enum": ["chrome", "msedge"],
-                        "description": "Optional browser engine: 'chrome' or 'msedge' to use installed Google Chrome or Microsoft Edge."
+                        "enum": ["chrome", "msedge", "edge", "brave", "firefox", "webkit", "default"],
+                        "description": "Optional browser engine: 'chrome', 'edge', 'brave', or 'firefox' to use the user's preferred installed browser."
                     }
                 },
                 "required": ["action", "query_or_url"]
