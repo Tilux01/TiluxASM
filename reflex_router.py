@@ -245,16 +245,16 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             "sub_text": f"Google: {q}"
         }
 
-    # 4. Workspace Chatbox Fast-Path
-    if re.search(r'^(?:open|show|launch|start)\s+(?:the\s+)?(?:workspace\s+(?:chatbox|chat\s*box|chatbot|chat)|workspace|chatbox|chat\s*box)$', clean, re.I):
+    # 4. Workspace Chatbox / Main Desktop App Fast-Path
+    if re.search(r'^(?:open|show|launch|start|bring\s+up)\s+(?:the\s+)?(?:workspace\s+(?:chatbox|chat\s*box|chatbot|chat)|workspace|chatbox|chat\s*box|tilux(?:\s+app)?|(?:its|your|the)\s+app|desktop\s+app|assistant(?:\s+app)?)$', clean, re.I):
         try:
             import server
             server.trigger_open_chat("")
             return {
                 "handled": True,
                 "action": "open_workspace_chatbox",
-                "reply": "Opening the workspace chatbox.",
-                "sub_text": "Opening Workspace..."
+                "reply": "Opening the desktop app.",
+                "sub_text": "Opening Tilux App..."
             }
         except Exception as e:
             print(f"[Reflex] Error triggering open chat: {e}")
