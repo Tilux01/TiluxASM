@@ -858,7 +858,14 @@ def voice_upload():
         import subprocess
         subprocess.run(["ffmpeg", "-y", "-i", temp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        from voice import get_whisper_model, transcribe_groq_whisper
+        try:
+            from voice import get_whisper_model, transcribe_groq_whisper
+        except ImportError:
+            try:
+                from voice import get_whisper_model
+            except ImportError:
+                def get_whisper_model(): return None
+            def transcribe_groq_whisper(*args, **kwargs): return ""
         print("[Server] Transcribing uploaded voice file...")
         import wave
         import numpy as np

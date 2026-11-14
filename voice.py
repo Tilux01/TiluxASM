@@ -45,9 +45,20 @@ _last_spoken_phrases = collections.deque(maxlen=15)
 
 def mark_tts_finished():
     """Records the exact wall-clock time that TTS audio finished playback."""
-    global _last_tts_end_time
+    global _last_tts_end_time, _last_spoken_phrases
     import time
-    _last_tts_end_time = time.time()
+    now = time.time()
+    _last_tts_end_time = now
+    try:
+        updated = collections.deque(maxlen=15)
+        for item in list(_last_spoken_phrases):
+            if isinstance(item, tuple):
+                updated.append((item[0], now))
+            else:
+                updated.append((str(item), now))
+        _last_spoken_phrases = updated
+    except Exception:
+        pass
 
 def is_speech_active() -> bool:
     """Returns True if TTS is actively playing or synthesizing audio."""
@@ -108,6 +119,18 @@ def resolve_piper_path(voice: str) -> str:
         cand = os.path.join(user_data, voice)
         if os.path.exists(cand):
             return cand
+    res_dir = os.environ.get("TILUX_RESOURCES_DIR")
+    if res_dir:
+        cand_res = os.path.join(res_dir, voice)
+        if os.path.exists(cand_res):
+            return cand_res
+        cand_res2 = os.path.join(res_dir, "backend", voice)
+        if os.path.exists(cand_res2):
+            return cand_res2
+    parent_dir = os.path.dirname(base_dir)
+    parent_cand = os.path.join(parent_dir, voice)
+    if os.path.exists(parent_cand):
+        return parent_cand
     cache_cand = os.path.join(os.path.expanduser("~/.cache/tilux"), voice)
     if os.path.exists(cache_cand):
         return cache_cand
@@ -320,9 +343,12 @@ class SpeechStreamer:
 
 def speak(text: str):
     """Converts text to speech and plays it with instantaneous sentence-pipelined streaming and zero lag."""
+    global _speech_generation_id, _is_tts_playing
     clean_text = clean_speech_text(text)
     if not clean_text:
         return
+    
+    register_spoken_text(clean_text)
     
     # Load TTS Settings
     settings = get_voice_settings()
@@ -330,11 +356,11 @@ def speak(text: str):
         return # Do not speak if disabled
 
     # Atomically claim new generation ID and reset stop event
-    global _speech_generation_id
     with _speech_lock:
         _speech_generation_id += 1
         my_gen_id = _speech_generation_id
         _stop_speech_event.clear()
+        _is_tts_playing = True
 
     # Pre-emptively stop previous hardware sound output before playing new turn
     try:
@@ -444,6 +470,7 @@ def speak(text: str):
                         break
 
                     sd.stop()
+                    _is_tts_playing = True
                     sd.play(audio_np, samplerate=sample_rate)
                     duration_sec = len(audio_np) / float(sample_rate)
                     start_time = time.time()
@@ -713,7 +740,7 @@ def _filter_echo(text: str) -> str:
     for item in list(_last_spoken_phrases):
         if isinstance(item, tuple):
             sp, sp_time = item
-            if (now - sp_time) > 4.5:
+            if (now - sp_time) > 12.0:
                 continue # Spoken too long ago to be an acoustic echo
         else:
             sp = str(item)
@@ -733,13 +760,46 @@ def _filter_echo(text: str) -> str:
         if norm_transcribed in sp and len(norm_transcribed.split()) >= 3:
             print(f"[Voice Echo Guard] 🛡️ Filtered self-echo (contained in recent speech '{sp}'): '{text}'")
             return ""
-        # 4. High word-set overlap check (> 70%) for multi-word phrases
+        # 4. High word-set overlap check (> 65%) for multi-word phrases
         if len(trans_words) >= 3 and sp_words:
             overlap = len(trans_words.intersection(sp_words)) / float(len(trans_words))
-            if overlap >= 0.70:
+            if overlap >= 0.65:
                 print(f"[Voice Echo Guard] 🛡️ Filtered self-echo ({overlap*100:.0f}% word overlap with '{sp}'): '{text}'")
                 return ""
     return text
+
+def get_supported_input_samplerate() -> int:
+    import sounddevice as sd
+    candidates = [16000, 48000, 44100, 32000, 22050]
+    try:
+        dev_info = sd.query_devices(kind='input')
+        preferred = int(dev_info.get('default_samplerate', 16000))
+        if preferred in candidates:
+            candidates.remove(preferred)
+        candidates.insert(0, preferred)
+    except Exception:
+        pass
+    for rate in candidates:
+        try:
+            sd.check_input_settings(samplerate=rate, channels=1, dtype='float32')
+            return rate
+        except Exception:
+            continue
+    return 16000
+
+def _resample_to_16k(audio_np, orig_sr: int):
+    import numpy as np
+    if orig_sr == 16000 or len(audio_np) == 0:
+        return audio_np
+    try:
+        from scipy import signal
+        num_target_samples = int(len(audio_np) * 16000 / orig_sr)
+        return signal.resample(audio_np, num_target_samples).astype(np.float32)
+    except Exception:
+        target_len = int(len(audio_np) * 16000 / orig_sr)
+        orig_indices = np.linspace(0, len(audio_np) - 1, len(audio_np))
+        target_indices = np.linspace(0, len(audio_np) - 1, target_len)
+        return np.interp(target_indices, orig_indices, audio_np).astype(np.float32)
 
 def listen(on_recording_done=None) -> str:
     """Listens to the microphone using ultra-fast dynamic VAD and returns transcribed text."""
@@ -750,7 +810,7 @@ def listen(on_recording_done=None) -> str:
     import time
     # 1. Acoustic Self-Hearing Guard: Wait only if TTS audio is actively playing on speakers
     t_wait_start = time.time()
-    while is_speech_active() and (time.time() - t_wait_start) < 3.0:
+    while is_speech_active() and (time.time() - t_wait_start) < 5.0:
         time.sleep(0.04)
 
     # 2. Reverb & sound card DMA output buffer settle guard
@@ -759,8 +819,10 @@ def listen(on_recording_done=None) -> str:
     if since_tts < 0.40:
         time.sleep(max(0.05, 0.40 - since_tts))
         
-    sample_rate = 16000
-    print("[Voice] Listening for user speech...")
+    input_sample_rate = get_supported_input_samplerate()
+    chunk_sec = 0.10
+    frames_per_chunk = int(input_sample_rate * chunk_sec)
+    print(f"[Voice] Listening for user speech on {input_sample_rate}Hz...")
     
     audio_buffer = []
     
@@ -771,9 +833,6 @@ def listen(on_recording_done=None) -> str:
     MAX_RECORD_DURATION = 15.0  # Max seconds for a single voice utterance (avoids giant audio buffers)
     INITIAL_TIMEOUT = 25.0      # Stays awake 25s if user hasn't started speaking before auto-closing
     POST_SPEECH_TIMEOUT = 1.8   # Safety cutoff 1.8s after user stops speaking even if room has ambient hum
-    
-    frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
-    chunk_sec = 0.10
     
     max_silence_chunks = int(SILENCE_DURATION / chunk_sec)
     max_chunks = int(MAX_RECORD_DURATION / chunk_sec)
@@ -794,19 +853,18 @@ def listen(on_recording_done=None) -> str:
     is_calibrated = False
 
     # Low-Frequency Hum Filter: 160Hz 2nd-order Butterworth high-pass filter
-    # Eliminates continuous low-frequency hums ("huhhhhhhh" sound from fans, AC, blowers, room resonance)
     sos = None
     zi = None
     try:
         import scipy.signal as signal
-        sos = signal.butter(2, 160.0 / (sample_rate / 2.0), btype='high', output='sos')
+        sos = signal.butter(2, 160.0 / (input_sample_rate / 2.0), btype='high', output='sos')
         zi = signal.sosfilt_zi(sos)
     except Exception:
         pass
     
     try:
         with noalsaerr():
-            with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
+            with sd.InputStream(samplerate=input_sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
                 # Discard initial capture buffer frames (flushes ADC click / sound card startup transient)
                 for _ in range(2):
                     try:
@@ -911,6 +969,9 @@ def listen(on_recording_done=None) -> str:
             return ""
             
         audio_np = np.concatenate(audio_buffer)
+        if input_sample_rate != 16000:
+            audio_np = _resample_to_16k(audio_np, input_sample_rate)
+        sample_rate = 16000
 
         # Discard audio if total captured length is too short to be speech (< 0.35s)
         if len(audio_np) < int(sample_rate * 0.35):

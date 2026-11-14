@@ -18,9 +18,10 @@ class TunnelManager:
         if cf_bin:
             return cf_bin
             
-        # 2. Check local directories
+        # 2. Check local directories & resources
         base_dir = os.path.dirname(os.path.abspath(__file__))
         user_data = os.environ.get("TILUX_USER_DATA_DIR")
+        res_dir = os.environ.get("TILUX_RESOURCES_DIR")
         is_win = platform.system() == "Windows"
         exe_name = "cloudflared.exe" if is_win else "cloudflared"
         
@@ -29,16 +30,19 @@ class TunnelManager:
         ]
         if user_data:
             candidates.insert(0, os.path.join(user_data, exe_name))
+        if res_dir:
+            candidates.insert(0, os.path.join(res_dir, exe_name))
+            candidates.insert(0, os.path.join(res_dir, "backend", exe_name))
+        parent_dir = os.path.dirname(base_dir)
+        candidates.append(os.path.join(parent_dir, exe_name))
+        candidates.append(os.path.join(parent_dir, "backend", exe_name))
+        candidates.append(os.path.expanduser(f"~/.cache/tilux/{exe_name}"))
             
         for cand in candidates:
-            if os.path.exists(cand) and os.path.isfile(cand):
+            if cand and os.path.exists(cand) and os.path.isfile(cand):
                 return cand
                 
-        # 3. Check if npx is available
-        if shutil.which("npx"):
-            return "npx --yes cloudflared"
-            
-        # 4. If neither exists, auto-download standalone single binary
+        # 3. Direct standalone single binary download (fast, reliable, zero-dependency)
         print(f"[Tunnel Manager] cloudflared not found. Downloading official Cloudflare Tunnel binary...")
         try:
             import urllib.request
@@ -70,8 +74,14 @@ class TunnelManager:
             print(f"[Tunnel Manager] Successfully installed cloudflared to: {target_file}")
             return target_file
         except Exception as e:
-            print(f"[Tunnel Manager] Auto-download error: {e}. Falling back to npx.")
-            return "npx --yes cloudflared"
+            print(f"[Tunnel Manager] Auto-download notice: {e}. Checking npx fallback...")
+
+        # 4. Fallback to npx if binary download fails
+        npx_bin = shutil.which("npx")
+        if npx_bin:
+            return npx_bin
+            
+        return "cloudflared"
 
     def start_tunnel(self, get_host_info_func=None):
         self.get_host_info_func = get_host_info_func
@@ -93,8 +103,11 @@ class TunnelManager:
 
                     cf_cmd = self._get_cloudflared_command()
                     extra_flags = ["--protocol", "http2", "--no-autoupdate", "--metrics", "127.0.0.1:0"]
-                    if isinstance(cf_cmd, str) and not os.path.exists(cf_cmd) and " " in cf_cmd:
-                        cmd_list = cf_cmd.split() + ["tunnel"] + extra_flags + ["--url", f"http://127.0.0.1:{self.port}"]
+                    use_shell = False
+                    if "npx" in os.path.basename(cf_cmd).lower():
+                        cmd_list = [cf_cmd, "--yes", "cloudflared", "tunnel"] + extra_flags + ["--url", f"http://127.0.0.1:{self.port}"]
+                        if platform.system() == "Windows":
+                            use_shell = True
                     else:
                         cmd_list = [cf_cmd, "tunnel"] + extra_flags + ["--url", f"http://127.0.0.1:{self.port}"]
 
@@ -103,11 +116,13 @@ class TunnelManager:
                         "stdout": subprocess.PIPE,
                         "stderr": subprocess.STDOUT,
                         "text": True,
-                        "bufsize": 1
+                        "bufsize": 1,
+                        "shell": use_shell
                     }
-                    if platform.system() == "Windows":
+                    if platform.system() == "Windows" and not use_shell:
                         popen_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
-                    self.process = subprocess.Popen(cmd_list, **popen_kwargs)
+                    spawn_cmd = subprocess.list2cmdline(cmd_list) if (use_shell and platform.system() == "Windows") else cmd_list
+                    self.process = subprocess.Popen(spawn_cmd, **popen_kwargs)
                     
                     for line in iter(self.process.stdout.readline, ''):
                         if not line:

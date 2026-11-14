@@ -155,12 +155,12 @@ jobs:
               has_bin = any(f.startswith(mod_base) and f.endswith(bin_ext) for f in os.listdir(target_sub)) if os.path.exists(target_sub) else False
               if not has_bin:
                   missing_binaries.append(mod)
-
-              # Unconditionally purge any plaintext .py or .pyc files for proprietary modules
-              for ext_to_purge in [".py", ".pyc"]:
-                  leaked_file = os.path.join(dist_dir, f"{mod}{ext_to_purge}")
-                  if os.path.exists(leaked_file):
-                      os.remove(leaked_file)
+              else:
+                  # Purge any plaintext .py or .pyc files once the compiled binary is confirmed present
+                  for ext_to_purge in [".py", ".pyc"]:
+                      leaked_file = os.path.join(dist_dir, f"{mod}{ext_to_purge}")
+                      if os.path.exists(leaked_file):
+                          os.remove(leaked_file)
 
           # Automatically find ANY .py file that has a corresponding .so or .pyd binary and purge it
           for root, dirs, files in os.walk(dist_dir):

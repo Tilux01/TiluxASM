@@ -28,6 +28,51 @@ function copyDirectory(src, dest) {
     }
 }
 
+function syncBackendCode(src, dest) {
+    if (!fs.existsSync(src)) return;
+    if (!fs.existsSync(dest)) {
+        fs.mkdirSync(dest, { recursive: true });
+    }
+    const PRESERVED_ITEMS = new Set([
+        'settings.json', 'user_personal.json', 'memory.json', 'chat_sessions.json',
+        'host_id.txt', 'pair_token.txt', 'backend_startup.log', 'cloud_bridge.log',
+        '.setup_complete', 'venv', 'uploads', 'vosk-model'
+    ]);
+    
+    try {
+        const entries = fs.readdirSync(src, { withFileTypes: true });
+        for (let entry of entries) {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+
+            if (PRESERVED_ITEMS.has(entry.name)) {
+                // If it doesn't exist yet, seed it with the default template
+                if (!fs.existsSync(destPath)) {
+                    if (entry.isDirectory()) {
+                        copyDirectory(srcPath, destPath);
+                    } else {
+                        try { fs.copyFileSync(srcPath, destPath); } catch (_) {}
+                    }
+                }
+                continue;
+            }
+
+            if (entry.isDirectory()) {
+                syncBackendCode(srcPath, destPath);
+            } else {
+                // Always overwrite code files (.py, .pyd, .so, etc.) so updates immediately take effect!
+                try {
+                    fs.copyFileSync(srcPath, destPath);
+                } catch (err) {
+                    console.error(`[Sync] Failed to sync ${entry.name}:`, err);
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[Sync] Error during syncBackendCode:', e);
+    }
+}
+
 function findSystemPython() {
     if (process.platform !== 'win32') {
         return 'python3';
@@ -56,6 +101,18 @@ async function setupAndRunBackend() {
         backendCwd = path.join(userDataPath, 'backend');
         const resourcesBackend = path.join(process.resourcesPath, 'backend');
         
+        // Ensure userData/backend directory exists for writable files (e.g. host_id, settings)
+        if (!fs.existsSync(backendCwd)) {
+            fs.mkdirSync(backendCwd, { recursive: true });
+        }
+
+        // ALWAYS sync the latest backend code files from app package to userData/backend on launch
+        // This ensures updates never run old stale code files (e.g. voice.py, server.py, brain.py)
+        if (fs.existsSync(resourcesBackend)) {
+            console.log('[Tilux] Syncing latest backend code from package to userData/backend...');
+            syncBackendCode(resourcesBackend, backendCwd);
+        }
+
         // Check for cross-platform pre-bundled standalone runtime
         const bundledPython = process.platform === 'win32'
             ? path.join(resourcesBackend, 'runtime', 'python.exe')
@@ -178,7 +235,10 @@ async function setupAndRunBackend() {
         const resourcesBackend = path.join(process.resourcesPath || '', 'backend');
         const customEnv = Object.assign({}, process.env, {
             TILUX_USER_DATA_DIR: backendCwd,
-            PYTHONPATH: app.isPackaged ? `${resourcesBackend}${path.delimiter}${process.env.PYTHONPATH || ''}` : (process.env.PYTHONPATH || '')
+            TILUX_RESOURCES_DIR: resourcesBackend,
+            PYTHONPATH: app.isPackaged 
+                ? `${backendCwd}${path.delimiter}${resourcesBackend}${path.delimiter}${process.env.PYTHONPATH || ''}` 
+                : (process.env.PYTHONPATH || '')
         });
         // Write persistent startup logs to userData/backend/backend_startup.log
         const logFilePath = path.join(backendCwd, 'backend_startup.log');

@@ -31,6 +31,7 @@ class WakeWordEngine:
     def _locate_or_download_model(self) -> str:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         user_data = os.environ.get("TILUX_USER_DATA_DIR")
+        res_dir = os.environ.get("TILUX_RESOURCES_DIR")
         
         candidates = [
             "vosk-model",
@@ -38,9 +39,17 @@ class WakeWordEngine:
         ]
         if user_data:
             candidates.insert(0, os.path.join(user_data, "vosk-model"))
+        if res_dir:
+            candidates.insert(0, os.path.join(res_dir, "vosk-model"))
+            candidates.insert(0, os.path.join(res_dir, "backend", "vosk-model"))
+        parent_dir = os.path.dirname(base_dir)
+        candidates.append(os.path.join(parent_dir, "vosk-model"))
+        candidates.append(os.path.join(parent_dir, "backend", "vosk-model"))
+        candidates.append(os.path.expanduser("~/.cache/tilux/vosk-model"))
             
         for cand in candidates:
-            if os.path.exists(cand) and os.path.isdir(cand) and os.path.exists(os.path.join(cand, "am")):
+            if cand and os.path.exists(cand) and os.path.isdir(cand) and (os.path.exists(os.path.join(cand, "am")) or os.path.exists(os.path.join(cand, "conf"))):
+                print(f"[WakeWord] Found local Vosk model: {cand}")
                 return cand
                 
         # If model is not found, auto-download in background
@@ -154,14 +163,39 @@ class WakeWordEngine:
                 break
         self.is_paused = False
 
+    def _get_supported_samplerate(self) -> int:
+        candidates = [16000, 48000, 44100, 32000, 22050]
+        if sd is None:
+            return 16000
+        try:
+            dev_info = sd.query_devices(kind='input')
+            preferred = int(dev_info.get('default_samplerate', 16000))
+            if preferred in candidates:
+                candidates.remove(preferred)
+            candidates.insert(0, preferred)
+        except Exception:
+            pass
+
+        for sr in candidates:
+            try:
+                sd.check_input_settings(samplerate=sr, channels=1, dtype='int16')
+                return sr
+            except Exception:
+                continue
+        return 16000
+
     def _listen_loop(self):
         if not os.path.exists(self.model_path) or Model is None:
-            print("[WakeWord] Vosk model not found or dependencies missing.")
-            return
+            self.model_path = self._locate_or_download_model()
+            if not os.path.exists(self.model_path) or Model is None:
+                print("[WakeWord] Vosk model not found or dependencies missing.")
+                return
 
-        print("[WakeWord] Loading offline Vosk model...")
+        sample_rate = self._get_supported_samplerate()
+        print(f"[WakeWord] Loading offline Vosk model at {sample_rate}Hz...")
         model = Model(self.model_path)
-        recognizer = KaldiRecognizer(model, 16000)
+        recognizer = KaldiRecognizer(model, sample_rate)
+        block_size = int(sample_rate * 0.125)
 
         while self.is_running:
             if self.is_paused:
@@ -171,10 +205,9 @@ class WakeWordEngine:
             triggered = False
             triggered_trailing = ""
             try:
-                # 2000 samples @ 16kHz = 125ms chunks for low-latency streaming recognition
-                with sd.RawInputStream(samplerate=16000, blocksize=2000, dtype='int16',
+                with sd.RawInputStream(samplerate=sample_rate, blocksize=block_size, dtype='int16',
                                        channels=1, callback=self._audio_callback):
-                    print("[WakeWord] Engine started and listening...")
+                    print(f"[WakeWord] Engine started and listening on {sample_rate}Hz...")
                     recognizer.Reset()
                     while self.is_running and not self.is_paused:
                         try:
