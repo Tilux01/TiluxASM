@@ -16,6 +16,7 @@ import subprocess
 import urllib.parse
 import time
 import shutil
+import re
 
 # Ensure this directory is in sys.path
 _current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -28,6 +29,47 @@ if __name__ in sys.modules:
     sys.modules['os_protocols'] = sys.modules[__name__]
 
 CURRENT_OS = platform.system()  # "Windows", "Darwin", "Linux"
+
+
+def resolve_spotify_uri(query: str) -> str:
+    """
+    Resolves song titles or search queries into direct Spotify track/album URIs
+    (e.g., 'spotify:track:2qxmye6gAegTMjLKEBoR3d').
+    Direct track URIs immediately trigger actual playback upon launch across Windows, macOS, and Linux,
+    bypassing the limitation of 'spotify:search:' which only opens the search results page without playing.
+    """
+    clean = query.strip()
+    if not clean:
+        return ""
+    if clean.startswith("spotify:"):
+        return clean
+
+    # Direct Web URL to Spotify URI
+    url_m = re.search(r"open\.spotify\.com/(track|album|playlist|artist)/([a-zA-Z0-9]+)", clean)
+    if url_m:
+        return f"spotify:{url_m.group(1)}:{url_m.group(2)}"
+
+    # Clean query from leading "play", "please play", etc.
+    song_term = re.sub(r"^(?:please\s+)?(?:can\s+you\s+)?(?:play|pleay|search|put\s+on)?\s*", "", clean, flags=re.I)
+    song_term = re.sub(r"\s+(?:on|in)\s+spotify$", "", song_term, flags=re.I).strip()
+    if not song_term:
+        song_term = clean
+
+    # Fast resolution via surf_search
+    try:
+        from executors.browser_executor import surf_search
+        search_res = surf_search(f"{song_term} spotify track", max_results=3)
+        for r in search_res.get("results", []):
+            dest_url = r.get("url", "")
+            m = re.search(r"open\.spotify\.com/(track|album|playlist|artist)/([a-zA-Z0-9]+)", dest_url)
+            if m:
+                return f"spotify:{m.group(1)}:{m.group(2)}"
+    except Exception:
+        pass
+
+    # Fallback to standard Spotify search protocol
+    return f"spotify:search:{urllib.parse.quote(song_term)}"
+
 
 # =====================================================================
 # 1. WINDOWS PROTOCOL
@@ -81,18 +123,15 @@ class WindowsProtocol:
     def spotify_play(cls, query: str = "") -> dict:
         """
         Plays music on Spotify using the native Windows URI protocol.
-        If query is a track/playlist URI (spotify:track:...): opens directly.
-        If query is text: opens search protocol and dispatches instant Return keystroke.
+        If query is a track/playlist URI (spotify:track:...): opens directly and autoplays.
+        If query is text: resolves track URI for instant autoplay or falls back to search protocol.
         """
         clean_query = query.strip()
         if not clean_query:
             return cls.media_play_pause()
 
-        # Direct Spotify URI (track, album, playlist, artist)
-        if clean_query.startswith("spotify:"):
-            target_uri = clean_query
-        else:
-            target_uri = f"spotify:search:{urllib.parse.quote(clean_query)}"
+        target_uri = resolve_spotify_uri(clean_query)
+        is_direct = any(target_uri.startswith(f"spotify:{t}:") for t in ["track", "album", "playlist", "artist"])
 
         # 1. Launch via Windows Shell (ShellExecute / startfile)
         launched = False
@@ -118,8 +157,8 @@ class WindowsProtocol:
             subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
                            capture_output=True, text=True, timeout=5)
 
-        # If it was a search query, send Enter after a brief pause so Spotify plays the top result
-        if not clean_query.startswith("spotify:track:") and not clean_query.startswith("spotify:album:"):
+        # If it fell back to a search query, send Enter after a brief pause so Spotify plays the top result
+        if not is_direct:
             time.sleep(0.75)
             # Send Enter via Win32 keybd_event
             if not cls._send_vk_key(cls.VK_RETURN):
@@ -135,6 +174,7 @@ class WindowsProtocol:
             "status": "success",
             "os": "Windows",
             "action": "spotify_play",
+            "uri": target_uri,
             "output": f"Playing '{clean_query}' on Spotify via Windows native protocol."
         }
 
@@ -374,25 +414,27 @@ class MacOSProtocol:
     def spotify_play(cls, query: str = "") -> dict:
         """
         Plays music on Spotify via AppleScript.
-        If track URI given: plays directly.
-        If query given: searches and triggers play.
+        If track URI given or resolved: plays directly.
+        If search fallback: searches and triggers play.
         """
         clean_query = query.strip()
         if not clean_query:
             return cls.media_play_pause()
 
-        if clean_query.startswith("spotify:"):
-            script = f'tell application "Spotify" to play track "{clean_query}"'
+        target_uri = resolve_spotify_uri(clean_query)
+        is_direct = any(target_uri.startswith(f"spotify:{t}:") for t in ["track", "album", "playlist", "artist"])
+
+        if is_direct:
+            script = f'tell application "Spotify" to play track "{target_uri}"'
             cls._run_osascript(script)
-            return {"status": "success", "os": "macOS", "action": "spotify_play", "output": f"Playing '{clean_query}' on Spotify"}
+            return {"status": "success", "os": "macOS", "action": "spotify_play", "uri": target_uri, "output": f"Playing '{clean_query}' on Spotify"}
         
         # Search via open URI and play
-        encoded = urllib.parse.quote(clean_query)
-        subprocess.Popen(["open", f"spotify:search:{encoded}"])
+        subprocess.Popen(["open", target_uri])
         time.sleep(0.7)
         # Hit return via System Events
         cls._run_osascript('tell application "System Events" to key code 36')
-        return {"status": "success", "os": "macOS", "action": "spotify_play", "output": f"Playing '{clean_query}' on Spotify via AppleScript"}
+        return {"status": "success", "os": "macOS", "action": "spotify_play", "uri": target_uri, "output": f"Playing '{clean_query}' on Spotify via AppleScript"}
 
     @classmethod
     def media_play_pause(cls) -> dict:
@@ -528,10 +570,8 @@ class LinuxProtocol:
         if not clean_query:
             return cls.media_play_pause()
 
-        if clean_query.startswith("spotify:"):
-            target_uri = clean_query
-        else:
-            target_uri = f"spotify:search:{urllib.parse.quote(clean_query)}"
+        target_uri = resolve_spotify_uri(clean_query)
+        is_direct = any(target_uri.startswith(f"spotify:{t}:") for t in ["track", "album", "playlist", "artist"])
 
         # 1. Try D-Bus OpenUri
         dbus_cmd = f"dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.OpenUri string:'{target_uri}' 2>/dev/null"
@@ -542,15 +582,18 @@ class LinuxProtocol:
             subprocess.Popen(f"xdg-open '{target_uri}' &", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(1.2)
         else:
-            time.sleep(0.6)
+            time.sleep(0.5)
 
-        # If it's a search, trigger Return via xdotool and playerctl to immediately play the top result
-        if not clean_query.startswith("spotify:track:") and not clean_query.startswith("spotify:album:"):
+        # Trigger playback via playerctl
+        subprocess.run("playerctl -p spotify play 2>/dev/null", shell=True)
+
+        # If it fell back to search, trigger Return via xdotool
+        if not is_direct:
             subprocess.run("xdotool search --class 'spotify' windowactivate --sync key Return 2>/dev/null || xdotool key Return 2>/dev/null", shell=True)
             time.sleep(0.3)
             subprocess.run("playerctl -p spotify play 2>/dev/null", shell=True)
 
-        return {"status": "success", "os": "Linux", "action": "spotify_play", "output": f"Playing '{clean_query}' on Spotify via MPRIS2 & instant playback trigger"}
+        return {"status": "success", "os": "Linux", "action": "spotify_play", "uri": target_uri, "output": f"Playing '{clean_query}' on Spotify via MPRIS2 & instant playback trigger"}
 
     @classmethod
     def media_play_pause(cls) -> dict:
@@ -757,6 +800,10 @@ class OSProtocols:
             return LinuxProtocol
 
     # --- Unified Media API ---
+    @classmethod
+    def resolve_spotify_uri(cls, query: str) -> str:
+        return resolve_spotify_uri(query)
+
     @classmethod
     def play_spotify(cls, query: str = "") -> dict:
         return cls.get_handler().spotify_play(query)

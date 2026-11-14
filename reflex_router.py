@@ -33,8 +33,8 @@ _RE_MUTE = re.compile(r'^(?:unmute|mute)(?:\s+(?:the\s+)?(?:sound|audio|volume|s
 _RE_VOL_UP = re.compile(r'^(?:turn\s+(?:the\s+)?volume\s+up|increase\s+(?:the\s+)?volume|volume\s+up|louder)$', re.I)
 _RE_VOL_DOWN = re.compile(r'^(?:turn\s+(?:the\s+)?volume\s+down|decrease\s+(?:the\s+)?volume|lower\s+(?:the\s+)?volume|volume\s+down|quieter|softer)$', re.I)
 _RE_VOL_SET = re.compile(r'^(?:set\s+(?:the\s+)?volume\s+to|volume)\s+(\d{1,3})(?:\s*(?:%|percent))?$', re.I)
-_RE_SPOTIFY_PLAY = re.compile(r'^(?:play|pleay|search)\s+(.+?)\s+(?:on|in)\s+spotify$', re.I)
-_RE_PLAY_GENERIC = re.compile(r'^(?:play|pleay)(?:\s+me)?\s+(?:some\s+)?(.+?)(?:\s+(?:on|in)\s+(?:spotify|music))?$', re.I)
+_RE_SPOTIFY_PLAY = re.compile(r'^(?:please\s+)?(?:can\s+you\s+)?(?:play|pleay|search|put\s+on)?\s*(.+?)\s+(?:on|in)\s+spotify$', re.I)
+_RE_PLAY_GENERIC = re.compile(r'^(?:please\s+)?(?:can\s+you\s+)?(?:play|pleay|put\s+on)(?:\s+me)?\s+(?:some\s+)?(.+?)(?:\s+(?:on|in)\s+(?:spotify|music))?$', re.I)
 
 _RE_APP_OPEN = re.compile(r'^(?:open\s+up|open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)$', re.I)
 _RE_TIME = re.compile(r'^(?:what\s+time\s+is\s+it|tell\s+me\s+the\s+time|current\s+time|what(?:\'s|\s+is)\s+the\s+time)$', re.I)
@@ -389,14 +389,14 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
                 return {
                     "handled": True,
                     "action": "battery_status",
-                    "reply": f"Battery is at {pct}% ({status}).",
+                    "reply": f"Your battery is at {pct}% and currently {status}. You're all set to keep working.",
                     "sub_text": f"Battery: {pct}% ({status})"
                 }
             else:
                 return {
                     "handled": True,
                     "action": "battery_status",
-                    "reply": "No battery detected (desktop AC power).",
+                    "reply": "No battery detected on this device. You're running directly on desktop AC power.",
                     "sub_text": "AC Power"
                 }
         except Exception:
@@ -412,7 +412,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             return {
                 "handled": True,
                 "action": "system_stats",
-                "reply": f"CPU usage is {cpu:.0f}%, RAM usage is {mem.percent:.0f}% ({avail_gb:.1f} GB available).",
+                "reply": f"CPU usage is sitting at {cpu:.0f}%, and memory is at {mem.percent:.0f}% with {avail_gb:.1f} GB available. Everything is running smoothly.",
                 "sub_text": f"CPU: {cpu:.0f}% | RAM: {mem.percent:.0f}%"
             }
         except Exception:
@@ -427,7 +427,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             return {
                 "handled": True,
                 "action": "disk_space",
-                "reply": f"You have {free_gb:.1f} GB of free storage space available.",
+                "reply": f"You have {free_gb:.1f} GB of free storage space available on your drive. Plenty of room for your work.",
                 "sub_text": f"Free: {free_gb:.1f} GB"
             }
         except Exception:
