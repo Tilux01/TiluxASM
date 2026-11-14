@@ -182,21 +182,15 @@ def widget_state_endpoint():
         elif sub_l.startswith("analyzing"):
             sub = "Thinking..."
             
-    main_txt = (WIDGET_STATE.get("main_text") or "").replace("—", "-").replace("–", "-")
-    sub_txt = (sub or "").replace("—", "-").replace("–", "-")
-    thought_txt = (getattr(brain, "current_thought", "") or WIDGET_STATE.get("thought_text", "")).replace("—", "-").replace("–", "-")
-    cmd_txt = (getattr(brain, "current_command", "") or WIDGET_STATE.get("command_text", "")).replace("—", "-").replace("–", "-")
-    reply_txt = (WIDGET_STATE.get("reply_text") or "").replace("—", "-").replace("–", "-")
-
     return jsonify({
-        "main_text": main_txt,
-        "sub_text": sub_txt,
-        "thought_text": thought_txt,
-        "command_text": cmd_txt,
+        "main_text": WIDGET_STATE.get("main_text", ""),
+        "sub_text": sub,
+        "thought_text": (getattr(brain, "current_thought", "") or WIDGET_STATE.get("thought_text", "")).replace("—", "-").replace("–", "-"),
+        "command_text": getattr(brain, "current_command", "") or WIDGET_STATE.get("command_text", ""),
         "speak_text": WIDGET_STATE.get("speak_text", ""),
         "speak_id": WIDGET_STATE.get("speak_id", 0),
         "is_speaking": WIDGET_STATE.get("is_speaking", False),
-        "reply_text": reply_txt
+        "reply_text": (WIDGET_STATE.get("reply_text") or "").replace("—", "-").replace("–", "-")
     })
 
 current_widget_proc = None
@@ -1351,10 +1345,10 @@ def on_brain_event_update(events, status, session_id=None):
     global WIDGET_STATE
     if is_voice_assistant_active:
         if status:
-            WIDGET_STATE["sub_text"] = status.replace("—", "-").replace("–", "-")
+            WIDGET_STATE["sub_text"] = status
         cmd = getattr(brain, "current_command", "")
         if cmd:
-            WIDGET_STATE["command_text"] = cmd.replace("—", "-").replace("–", "-")
+            WIDGET_STATE["command_text"] = cmd
         th = getattr(brain, "current_thought", "")
         if th:
             WIDGET_STATE["thought_text"] = th.replace("—", "-").replace("–", "-")
