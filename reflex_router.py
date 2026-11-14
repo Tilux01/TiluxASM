@@ -26,14 +26,15 @@ except ImportError:
 
 # Compiled regex patterns for ultra-fast matching
 _RE_PAUSE = re.compile(r'^(?:media\s+)?(pause|stop)(?:\s+(?:the\s+)?(?:music|media|song|playback))?$', re.I)
-_RE_PLAY_RESUME = re.compile(r'^(?:media\s+)?(play|resume|toggle)(?:\s+(?:the\s+)?(?:music|media|song|playback))?$', re.I)
+_RE_PLAY_RESUME = re.compile(r'^(?:media\s+)?(?:play|pleay|resume|toggle|put\s+on)(?:\s+(?:me\s+|some\s+|a\s+|the\s+)?(?:music|media|song|songs|track|tracks|playback))?$', re.I)
 _RE_NEXT = re.compile(r'^(?:play\s+)?(?:the\s+)?(next|skip)(?:\s+(?:song|track|music))?$', re.I)
 _RE_PREV = re.compile(r'^(?:play\s+)?(?:the\s+)?(previous|prev|last)(?:\s+(?:song|track|music))?$', re.I)
 _RE_MUTE = re.compile(r'^(?:unmute|mute)(?:\s+(?:the\s+)?(?:sound|audio|volume|speaker|speakers))?$', re.I)
 _RE_VOL_UP = re.compile(r'^(?:turn\s+(?:the\s+)?volume\s+up|increase\s+(?:the\s+)?volume|volume\s+up|louder)$', re.I)
 _RE_VOL_DOWN = re.compile(r'^(?:turn\s+(?:the\s+)?volume\s+down|decrease\s+(?:the\s+)?volume|lower\s+(?:the\s+)?volume|volume\s+down|quieter|softer)$', re.I)
 _RE_VOL_SET = re.compile(r'^(?:set\s+(?:the\s+)?volume\s+to|volume)\s+(\d{1,3})(?:\s*(?:%|percent))?$', re.I)
-_RE_SPOTIFY_PLAY = re.compile(r'^(?:play|search)\s+(.+?)\s+on\s+spotify$', re.I)
+_RE_SPOTIFY_PLAY = re.compile(r'^(?:play|pleay|search)\s+(.+?)\s+(?:on|in)\s+spotify$', re.I)
+_RE_PLAY_GENERIC = re.compile(r'^(?:play|pleay)(?:\s+me)?\s+(?:some\s+)?(.+?)(?:\s+(?:on|in)\s+(?:spotify|music))?$', re.I)
 
 _RE_APP_OPEN = re.compile(r'^(?:open\s+up|open|launch|start)\s+([a-zA-Z0-9_\-\.\s]+)$', re.I)
 _RE_TIME = re.compile(r'^(?:what\s+time\s+is\s+it|tell\s+me\s+the\s+time|current\s+time|what(?:\'s|\s+is)\s+the\s+time)$', re.I)
@@ -142,7 +143,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_pause",
-            "reply": "Paused.",
+            "reply": "Paused the playback for you. Let me know whenever you want to jump back in.",
             "sub_text": res.get("output", "Paused media")
         }
 
@@ -151,7 +152,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_play",
-            "reply": "Playing.",
+            "reply": "Putting your music on right now. Sit back and enjoy the sound.",
             "sub_text": res.get("output", "Resumed media")
         }
 
@@ -160,7 +161,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_next",
-            "reply": "Next track.",
+            "reply": "Skipped to the next track. Hopefully this one hits the spot.",
             "sub_text": res.get("output", "Skipped to next track")
         }
 
@@ -169,7 +170,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_prev",
-            "reply": "Previous track.",
+            "reply": "Going back to the previous track. Running it from the top.",
             "sub_text": res.get("output", "Returned to previous track")
         }
 
@@ -178,7 +179,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_mute",
-            "reply": "Muted audio.",
+            "reply": "Muted your audio. Peace and quiet until you unmute.",
             "sub_text": res.get("output", "Toggled mute")
         }
 
@@ -187,7 +188,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_volume_up",
-            "reply": "Volume turned up.",
+            "reply": "Turned the volume up for you. Loud, crisp, and clear.",
             "sub_text": res.get("output", "Volume increased")
         }
 
@@ -196,7 +197,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_volume_down",
-            "reply": "Volume turned down.",
+            "reply": "Lowered the volume down a bit. Keeping things smooth.",
             "sub_text": res.get("output", "Volume decreased")
         }
 
@@ -207,7 +208,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "media_set_volume",
-            "reply": f"Volume set to {val} percent.",
+            "reply": f"Set your volume to {val} percent. Balanced just how you like it.",
             "sub_text": res.get("output", f"Volume: {val}%")
         }
 
@@ -218,9 +219,22 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "spotify_play",
-            "reply": f"Playing {query} on Spotify.",
+            "reply": f"Playing {query} on Spotify for you right now. Sit back and enjoy the vibe.",
             "sub_text": res.get("output", f"Spotify: {query}")
         }
+
+    generic_play_match = _RE_PLAY_GENERIC.match(clean)
+    if generic_play_match:
+        query = generic_play_match.group(1).strip()
+        NON_SONG_WORDS = {"game", "video", "chess", "football", "soccer", "around", "dumb", "fool"}
+        if query and not any(w in NON_SONG_WORDS for w in query.lower().split()):
+            res = OSProtocols.play_spotify(query)
+            return {
+                "handled": True,
+                "action": "media_play_specific",
+                "reply": f"Playing {query} for you right away. Enjoy the tune.",
+                "sub_text": res.get("output", f"Playing: {query}")
+            }
 
     # 3. Web Search Reflex (Google / Search for)
     if re.match(r'^(?:web\s+search|search\s+the\s+web|open\s+(?:the\s+)?browser(?:\s+to\s+search(?:\s+the\s+web)?)?)$', clean, re.I):
@@ -228,7 +242,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "web_search",
-            "reply": "Opening browser for web search.",
+            "reply": "Opening up your browser for web search. Ready when you are.",
             "sub_text": "Opened Google"
         }
 
@@ -241,7 +255,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "web_search",
-            "reply": f"Searching Google for {q}.",
+            "reply": f"Searching Google for '{q}' right now. Pulling up your results in the browser.",
             "sub_text": f"Google: {q}"
         }
 
@@ -253,7 +267,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             return {
                 "handled": True,
                 "action": "open_workspace_chatbox",
-                "reply": "Opening the desktop app.",
+                "reply": "Bringing up the Tilux desktop workspace for you right now. Let's get to work.",
                 "sub_text": "Opening Tilux App..."
             }
         except Exception as e:
@@ -287,7 +301,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
                     return {
                         "handled": True,
                         "action": "open_url",
-                        "reply": f"Opening {pretty_name}.",
+                        "reply": f"Opening {pretty_name} for you right now. Pulling up your page in the browser.",
                         "sub_text": res.get("output", f"Opened {target_url}")
                     }
 
@@ -301,7 +315,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
                 return {
                     "handled": True,
                     "action": f"launch_{target_app}",
-                    "reply": f"Opening {pretty_name}.",
+                    "reply": f"Opening {pretty_name} for you right away. Everything is ready on your screen.",
                     "sub_text": res.get("output", f"Launched {pretty_name}")
                 }
             else:
@@ -313,7 +327,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "system_time",
-            "reply": f"It's {now_str}.",
+            "reply": f"It is currently {now_str}. Let's make every minute count.",
             "sub_text": f"Time: {now_str}"
         }
 
@@ -326,7 +340,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "system_date",
-            "reply": f"Today is {date_str}.",
+            "reply": f"Today is {date_str}. Let's make today productive.",
             "sub_text": date_str
         }
 
@@ -335,7 +349,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         return {
             "handled": True,
             "action": "system_day",
-            "reply": f"Today is {day_str}.",
+            "reply": f"Today is {day_str}. Hope your day is going great.",
             "sub_text": f"Day: {day_str}"
         }
 
@@ -428,7 +442,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             return {
                 "handled": True,
                 "action": "take_screenshot",
-                "reply": "Screenshot captured and saved to Pictures.",
+                "reply": "Captured your screen cleanly. The screenshot is saved in your Pictures folder.",
                 "sub_text": f"Screenshot: {fname}"
             }
         except Exception as e:
@@ -448,7 +462,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             return {
                 "handled": True,
                 "action": "lock_screen",
-                "reply": "Screen locked.",
+                "reply": "Locked your screen right away. Your workstation is secure.",
                 "sub_text": "Locked workstation"
             }
         except Exception as e:
@@ -471,7 +485,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
                         return {
                             "handled": True,
                             "action": "quick_math",
-                            "reply": f"The answer is {fmt_val}.",
+                            "reply": f"That comes out to {fmt_val}. Quick math, zero sweat.",
                             "sub_text": f"{expr} = {fmt_val}"
                         }
             except Exception:

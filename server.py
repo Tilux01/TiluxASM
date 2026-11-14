@@ -49,13 +49,24 @@ import threading
 import logging
 import psutil
 import subprocess
-from brain import Brain
-from voice import speak, listen, init_voice_models
-from memory import load_memory
-import wake_word
+try:
+    from brain import Brain
+except Exception as e:
+    print(f"[Server CRITICAL] Failed to import Brain: {e}", flush=True)
+    import traceback
+    traceback.print_exc()
+    raise
 
-# Preload voice models into RAM in background so voice response is instantaneous
-init_voice_models()
+try:
+    from voice import speak, listen, init_voice_models
+    from memory import load_memory
+    import wake_word
+    # Preload voice models into RAM in background so voice response is instantaneous
+    init_voice_models()
+except Exception as e:
+    print(f"[Server CRITICAL] Voice/WakeWord init exception: {e}", flush=True)
+    import traceback
+    traceback.print_exc()
 
 # Werkzeug logging suppressed to hide background polling spam
 log = logging.getLogger('werkzeug')
@@ -428,7 +439,10 @@ def _on_wake_word(initial_phrase=""):
         wake_word.resume_wake_word()
 
 if load_settings().get("wake_word_enabled", True):
-    wake_word.start_wake_word(_on_wake_word)
+    try:
+        wake_word.start_wake_word(_on_wake_word)
+    except Exception as e:
+        print(f"[Server] Notice: Wake word initial start deferred: {e}", flush=True)
 
 def is_direct_localhost():
     """Returns True ONLY if request comes directly from the local machine, not via remote tunnel or LAN."""

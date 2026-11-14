@@ -212,6 +212,11 @@ jobs:
           # Pre-bundle official cloudflared binary for instantaneous high-speed remote tunnel
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -o tilux_engine_dist/cloudflared.exe
 
+          # Bundle Microsoft Visual C++ runtime DLLs from runner so compiled Nuitka .pyd modules load on any Windows machine without requiring MSVC Redistributable
+          cp -f /c/Windows/System32/msvcp140*.dll tilux_engine_dist/runtime/ || true
+          cp -f /c/Windows/System32/vcruntime140*.dll tilux_engine_dist/runtime/ || true
+          cp -f /c/Windows/System32/vcomp140*.dll tilux_engine_dist/runtime/ || true
+
       - name: Download & Bundle Standalone Python Runtime (Linux)
         if: matrix.os == 'ubuntu-latest'
         shell: bash

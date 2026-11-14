@@ -271,6 +271,13 @@ function createWindow () {
         height: 800,
         minWidth: 900,
         minHeight: 600,
+        backgroundColor: '#07060a',
+        titleBarStyle: process.platform === 'win32' ? 'hidden' : 'default',
+        titleBarOverlay: process.platform === 'win32' ? {
+            color: '#07060a',
+            symbolColor: '#ffffff',
+            height: 38
+        } : false,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: true, // required for ipcRenderer in loading.html

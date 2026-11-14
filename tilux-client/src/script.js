@@ -669,6 +669,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let isProcessingText = false;
+    let isSubmitting = false;
     let currentAbortController = null;
     let currentAiMessage = null;
     let statusInterval = null;
@@ -695,6 +696,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e) {}
         
         // Reset UI
+        isSubmitting = false;
         isProcessingText = false;
         inputField.disabled = false;
         
@@ -713,27 +715,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function sendText(isVoice = false) {
+        if (isSubmitting || isProcessingText) return;
         const text = inputField.value.trim();
         if (!text && selectedFiles.length === 0) return;
 
-        // Auto-kill previous audio and AI task
-        try {
-            await fetch('http://127.0.0.1:8932/api/kill_audio', { method: 'POST' });
-            if (isProcessingText) {
-                await stopGeneration();
-            }
-        } catch(e) {}
-
+        // Synchronously lock and clear input immediately before any async awaits
+        isSubmitting = true;
         isProcessingText = true;
-        
+        inputField.value = '';
+        inputField.style.height = 'auto';
+        inputField.disabled = true;
+
         const sendIcon = document.getElementById('send-icon');
         if (sendIcon) {
             sendIcon.className = 'fa-solid fa-stop';
             sendIcon.style.color = '#ef4444'; // Red color for stop
         }
 
-        inputField.value = '';
-        inputField.style.height = 'auto';
+        // Auto-kill previous audio
+        try {
+            await fetch('http://127.0.0.1:8932/api/kill_audio', { method: 'POST' });
+        } catch(e) {}
+
         transitionToChat();
         
         let attachmentHtml = '';
@@ -824,6 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusInterval = null;
             }
             
+            isSubmitting = false;
             isProcessingText = false;
             inputField.disabled = false;
             
@@ -1293,7 +1297,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // Event Listeners
-    sendBtn.addEventListener('click', () => {
+    sendBtn.addEventListener('click', (e) => {
+        if (e) e.preventDefault();
         if (isProcessingText) stopGeneration();
         else sendText();
     });

@@ -187,7 +187,20 @@ body {
 .top-bar {
     display: flex;
     justify-content: space-between;
-    padding: 20px 30px;
+    padding: 18px 30px;
+    -webkit-app-region: drag;
+    user-select: none;
+}
+
+.top-bar button,
+.top-bar a,
+.top-bar input,
+.top-bar select,
+.top-bar .brand-badge,
+.top-bar .header-billing-widget,
+.top-bar .topup-action-btn,
+.top-bar .model-selector {
+    -webkit-app-region: no-drag;
 }
 
 .model-selector {

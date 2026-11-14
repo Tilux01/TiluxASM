@@ -540,11 +540,17 @@ class LinuxProtocol:
         # 2. Fallback to xdg-open if D-Bus failed (e.g. Spotify not currently launched)
         if res.returncode != 0:
             subprocess.Popen(f"xdg-open '{target_uri}' &", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(1.0)
-            # Try to trigger play via playerctl
+            time.sleep(1.2)
+        else:
+            time.sleep(0.6)
+
+        # If it's a search, trigger Return via xdotool and playerctl to immediately play the top result
+        if not clean_query.startswith("spotify:track:") and not clean_query.startswith("spotify:album:"):
+            subprocess.run("xdotool search --class 'spotify' windowactivate --sync key Return 2>/dev/null || xdotool key Return 2>/dev/null", shell=True)
+            time.sleep(0.3)
             subprocess.run("playerctl -p spotify play 2>/dev/null", shell=True)
 
-        return {"status": "success", "os": "Linux", "action": "spotify_play", "output": f"Playing '{clean_query}' on Spotify via MPRIS2 D-Bus"}
+        return {"status": "success", "os": "Linux", "action": "spotify_play", "output": f"Playing '{clean_query}' on Spotify via MPRIS2 & instant playback trigger"}
 
     @classmethod
     def media_play_pause(cls) -> dict:
