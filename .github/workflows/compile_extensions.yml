@@ -62,7 +62,7 @@ jobs:
           base_runtime_files = [
               "server.py", "install.py", "restart_server.py", "autostart.py", "voice.py",
               "wake_word.py", "history_manager.py", "memory.py", "tunnel_manager.py",
-              "requirements.txt", "settings.json", "user_personal.json", "README.md",
+              "requirements.txt", "settings.json", "README.md",
               "wake_greetings.json", "voices.json"
           ]
           for f in base_runtime_files:
@@ -161,14 +161,28 @@ jobs:
                   if os.path.exists(leaked_file):
                       os.remove(leaked_file)
 
+          # Automatically find ANY .py file that has a corresponding .so or .pyd binary and purge it
+          for root, dirs, files in os.walk(dist_dir):
+              for f in files:
+                  if f.endswith(bin_ext):
+                      base = f.split(".")[0]
+                      for ext_to_purge in [".py", ".pyc"]:
+                          p_cand = os.path.join(root, f"{base}{ext_to_purge}")
+                          if os.path.exists(p_cand):
+                              os.remove(p_cand)
+                              print(f"[CI Dist Build] Purged {base}{ext_to_purge} because compiled binary {f} is present.")
+
           if missing_binaries:
               print(f"[CI Dist Build] Warning: The following modules did not produce a binary: {missing_binaries}")
 
-          # Purge any leaked test files, rules or configs from the bundle
+          # Purge any leaked test files, rules, unused files or personal data from the bundle
           banned_items = [
               "main.py", "make_icon.py", "parse_linkedin.py", "play_music.py",
               "database.rules.json", "firebase.json", ".env", "test_sfdcr.so",
-              "firebase_sync.py", "diagnose_windows.bat", "diagnose_windows.py"
+              "firebase_sync.py", "diagnose_windows.bat", "diagnose_windows.py",
+              "user_personal.json", "memory.json", "chat_sessions.json", "backend_startup.log",
+              "host_id.txt", "pair_token.txt", "pages.css", "puter.js", "Tilux_ASM_Report.html",
+              "Tilux_ASM_Report.pdf"
           ]
           for item in banned_items:
               target = os.path.join(dist_dir, item)

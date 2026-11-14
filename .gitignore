@@ -41,3 +41,6 @@ view.png
 diagnose_windows.*
 tilux_engine_dist/
 windows_artifact/
+backend_startup.log
+*.bak
+Tilux_ASM_Report.*
