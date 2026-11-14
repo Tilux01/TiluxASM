@@ -232,6 +232,7 @@ jobs:
           # Pre-bundle official cloudflared binary
           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o tilux_engine_dist/cloudflared
           chmod +x tilux_engine_dist/cloudflared
+          chmod +x tilux_engine_dist/runtime/bin/* || true
 
       - name: Download & Bundle Standalone Python Runtime (macOS)
         if: matrix.os == 'macos-latest'
@@ -245,11 +246,12 @@ jobs:
           # Install dependencies into standalone runtime
           ./tilux_engine_dist/runtime/bin/python3 -m pip install -r requirements.txt --prefer-binary
 
-          # Pre-bundle official cloudflared binary
-          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz -o cf.tgz
+          # Pre-bundle official cloudflared binary (native arm64 for Apple Silicon)
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz -o cf.tgz
           tar -xzf cf.tgz -C tilux_engine_dist
           rm -f cf.tgz
           chmod +x tilux_engine_dist/cloudflared || true
+          chmod +x tilux_engine_dist/runtime/bin/* || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
