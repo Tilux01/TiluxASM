@@ -39,3 +39,6 @@ def forget_fact(fact: str) -> str:
             json.dump(facts, f, indent=4)
         return f"I have forgotten: {fact}"
     return "I don't have that in my memory."
+
+get_facts = load_memory
+

@@ -759,12 +759,12 @@ def chat():
         return jsonify({"error": "Unauthorized: Valid pair token required for remote access."}), 401
     stop_audio_process()
     if request.is_json:
-        user_text = request.json.get("text", "").strip()
+        user_text = (request.json.get("text") or request.json.get("prompt") or request.json.get("message") or "").strip()
         session_id = request.json.get("session_id")
         is_voice = str(request.json.get("is_voice", "")).lower() == "true"
         attachments = []
     else:
-        user_text = request.form.get("text", "").strip()
+        user_text = (request.form.get("text") or request.form.get("prompt") or request.form.get("message") or "").strip()
         session_id = request.form.get("session_id")
         is_voice = str(request.form.get("is_voice", "")).lower() == "true"
         attachments = request.files.getlist("attachments")

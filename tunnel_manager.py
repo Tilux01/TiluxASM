@@ -50,13 +50,22 @@ class TunnelManager:
             
             if is_win:
                 url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+                urllib.request.urlretrieve(url, target_file)
             elif platform.system() == "Darwin":
-                url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
+                import tarfile
+                arch = "arm64" if platform.machine().lower() in ["arm64", "aarch64"] else "amd64"
+                url = f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-{arch}.tgz"
+                tgz_path = os.path.join(target_dir, "cf.tgz")
+                urllib.request.urlretrieve(url, tgz_path)
+                with tarfile.open(tgz_path, "r:gz") as tar:
+                    tar.extractall(path=target_dir)
+                if os.path.exists(tgz_path):
+                    os.remove(tgz_path)
             else:
                 url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+                urllib.request.urlretrieve(url, target_file)
                 
-            urllib.request.urlretrieve(url, target_file)
-            if not is_win:
+            if not is_win and os.path.exists(target_file):
                 os.chmod(target_file, 0o755)
             print(f"[Tunnel Manager] Successfully installed cloudflared to: {target_file}")
             return target_file

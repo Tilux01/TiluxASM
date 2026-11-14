@@ -48,7 +48,7 @@ _RE_SYS_STATS = re.compile(r'^(?:system\s+stats|cpu\s+usage|ram\s+usage|memory\s
 _RE_DISK = re.compile(r'^(?:disk\s+space|storage|free\s+space|how\s+much\s+(?:disk\s+space|storage)\s+(?:is\s+left|free)?)$', re.I)
 _RE_SCREENSHOT = re.compile(r'^(?:take\s+(?:a\s+)?screenshot|screenshot|screen\s+capture|capture\s+(?:the\s+)?screen)$', re.I)
 _RE_LOCK = re.compile(r'^(?:lock\s+(?:the\s+)?(?:screen|computer|pc)|lock\s+my\s+screen)$', re.I)
-_RE_MATH = re.compile(r'^(?:what(?:\'s|\s+is)|calculate|compute)\s+([\d\.\s\+\-\*\/\(\)\%]+)$', re.I)
+_RE_MATH = re.compile(r'^(?:what(?:\'s|\s+is)|calculate|compute)\s+([\d\.\s\+\-\*\/\(\)\%\^]+|\d+(?:\.\d+)?\s*%\s*of\s*\d+(?:\.\d+)?)$', re.I)
 
 # App alias mapping to ensure cross-platform resolution
 _APP_ALIASES = {
@@ -458,10 +458,11 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
     math_match = _RE_MATH.match(clean)
     if math_match:
         expr = math_match.group(1).strip()
-        if re.match(r'^[\d\.\s\+\-\*\/\(\)\%]+$', expr):
+        if re.match(r'^[\d\.\s\+\-\*\/\(\)\%\^]+$', expr) or re.match(r'^\d+(?:\.\d+)?\s*%\s*of\s*\d+(?:\.\d+)?$', expr, re.I):
             try:
                 expr_calc = re.sub(r'(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)', r'(\1 / 100.0 * \2)', expr, flags=re.I)
                 expr_calc = re.sub(r'(\d+(?:\.\d+)?)\s*%', r'(\1 / 100.0)', expr_calc)
+                expr_calc = expr_calc.replace('^', '**')
                 code = compile(expr_calc, "<math>", "eval")
                 if not code.co_names:
                     val = eval(code, {"__builtins__": {}}, {})
