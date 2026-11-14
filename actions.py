@@ -741,12 +741,12 @@ def execute_category_task(category: str, payload_json: str = "{}") -> str:
     except Exception as e:
         return f"Category task execution failed: {str(e)}"
 
-def fast_browser_surf(action: str, query_or_url: str, interaction_steps: list = None) -> str:
+def fast_browser_surf(action: str, query_or_url: str, interaction_steps: list = None, profile_name: str = "default", channel: str = None) -> str:
     """
     Ultra-fast web surfing and browser automation across Windows, macOS, and Linux.
     - 'search': Searches online and returns structured results (<1.5s).
     - 'read': Extracts clean page text and markdown without opening heavy windows (<0.8s).
-    - 'interact': Executes interactive clicking, form filling, and DOM inspection.
+    - 'interact': Executes interactive clicking, form filling, and DOM inspection with persistent user profile and real Chrome/Edge detection.
     """
     import os, sys, json
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -764,7 +764,9 @@ def fast_browser_surf(action: str, query_or_url: str, interaction_steps: list = 
     payload = {
         "action": action,
         "query_or_url": query_or_url,
-        "steps": interaction_steps or []
+        "steps": interaction_steps or [],
+        "profile_name": profile_name,
+        "channel": channel
     }
     res = run_browser_task(payload)
     return json.dumps(res, indent=2) if isinstance(res, dict) else str(res)

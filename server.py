@@ -182,15 +182,21 @@ def widget_state_endpoint():
         elif sub_l.startswith("analyzing"):
             sub = "Thinking..."
             
+    main_txt = (WIDGET_STATE.get("main_text") or "").replace("—", "-").replace("–", "-")
+    sub_txt = (sub or "").replace("—", "-").replace("–", "-")
+    thought_txt = (getattr(brain, "current_thought", "") or WIDGET_STATE.get("thought_text", "")).replace("—", "-").replace("–", "-")
+    cmd_txt = (getattr(brain, "current_command", "") or WIDGET_STATE.get("command_text", "")).replace("—", "-").replace("–", "-")
+    reply_txt = (WIDGET_STATE.get("reply_text") or "").replace("—", "-").replace("–", "-")
+
     return jsonify({
-        "main_text": WIDGET_STATE.get("main_text", ""),
-        "sub_text": sub,
-        "thought_text": getattr(brain, "current_thought", "") or WIDGET_STATE.get("thought_text", ""),
-        "command_text": getattr(brain, "current_command", "") or WIDGET_STATE.get("command_text", ""),
+        "main_text": main_txt,
+        "sub_text": sub_txt,
+        "thought_text": thought_txt,
+        "command_text": cmd_txt,
         "speak_text": WIDGET_STATE.get("speak_text", ""),
         "speak_id": WIDGET_STATE.get("speak_id", 0),
         "is_speaking": WIDGET_STATE.get("is_speaking", False),
-        "reply_text": WIDGET_STATE.get("reply_text", "")
+        "reply_text": reply_txt
     })
 
 current_widget_proc = None
@@ -357,7 +363,7 @@ def _on_wake_word(initial_phrase=""):
                 if reflex_res:
                     print(f"[Server] ⚡ Reflex router handled: '{text}' -> {reflex_res.get('action')}")
                     if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
-                        reply_text = reflex_res.get("reply", "")
+                        reply_text = (reflex_res.get("reply", "") or "").replace("—", "-").replace("–", "-")
                         if reply_text and is_voice_assistant_active and not brain.abort_flag:
                             WIDGET_STATE["main_text"] = "Speaking..."
                             WIDGET_STATE["sub_text"] = reply_text
@@ -368,8 +374,8 @@ def _on_wake_word(initial_phrase=""):
                             WIDGET_STATE["is_speaking"] = False
                             WIDGET_STATE["sub_text"] = ""
                         break
-                    reply_text = reflex_res.get("reply", "")
-                    clean_sub = reflex_res.get("sub_text", "") or reply_text
+                    reply_text = (reflex_res.get("reply", "") or "").replace("—", "-").replace("–", "-")
+                    clean_sub = (reflex_res.get("sub_text", "") or reply_text).replace("—", "-").replace("–", "-")
                     if reply_text and is_voice_assistant_active and not brain.abort_flag:
                         WIDGET_STATE["main_text"] = "Speaking..."
                         WIDGET_STATE["sub_text"] = clean_sub
@@ -389,11 +395,11 @@ def _on_wake_word(initial_phrase=""):
                 if brain.abort_flag or reply_data.get("aborted") or not is_voice_assistant_active:
                     break
                     
-                reply_text = reply_data.get("reply", "")
+                reply_text = (reply_data.get("reply", "") or "").replace("—", "-").replace("–", "-")
                 
                 # Speak final response
                 if reply_text and is_voice_assistant_active and not brain.abort_flag:
-                    clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text)
+                    clean_widget_text = re.sub(r'[*_~`#>]', '', reply_text).replace("—", "-").replace("–", "-")
                     WIDGET_STATE["main_text"] = "Speaking..."
                     WIDGET_STATE["sub_text"] = clean_widget_text
                     WIDGET_STATE["reply_text"] = reply_text
@@ -1345,13 +1351,13 @@ def on_brain_event_update(events, status, session_id=None):
     global WIDGET_STATE
     if is_voice_assistant_active:
         if status:
-            WIDGET_STATE["sub_text"] = status
+            WIDGET_STATE["sub_text"] = status.replace("—", "-").replace("–", "-")
         cmd = getattr(brain, "current_command", "")
         if cmd:
-            WIDGET_STATE["command_text"] = cmd
+            WIDGET_STATE["command_text"] = cmd.replace("—", "-").replace("–", "-")
         th = getattr(brain, "current_thought", "")
         if th:
-            WIDGET_STATE["thought_text"] = th
+            WIDGET_STATE["thought_text"] = th.replace("—", "-").replace("–", "-")
     socketio.emit("agent_events", {"events": events, "status": status, "session_id": session_id})
 
 brain.on_event_update = on_brain_event_update

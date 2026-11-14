@@ -28,7 +28,10 @@ import json
 import threading
 from queue import Queue, Empty
 import asyncio
-import edge_tts
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
 
 import collections
 
@@ -191,13 +194,16 @@ _active_speech_streamer = None
 def clean_speech_text(text: str) -> str:
     """Sanitizes Markdown and syntax out of text for spoken speech."""
     import re
-    clean = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    if not text:
+        return ""
+    clean = text.replace("—", "-").replace("–", "-")
+    clean = re.sub(r'!\[.*?\]\(.*?\)', '', clean)
     clean = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean)
     clean = re.sub(r'```[\s\S]*?```', '', clean)
     clean = re.sub(r'`[^`]+`', '', clean)
     clean = re.sub(r'https?://[^\s]+', '', clean)
     clean = re.sub(r'/[a-zA-Z0-9_./-]+', '', clean)
-    clean = re.sub(r'[*_~`#>\-]', '', clean).strip()
+    clean = re.sub(r'[*_~`#>]', '', clean).strip()
     return clean
 
 class SpeechStreamer:
@@ -218,7 +224,7 @@ class SpeechStreamer:
 
     def feed(self, sentence: str):
         if not self.stop_event.is_set() and sentence:
-            self.queue.put(sentence)
+            self.queue.put(sentence.replace("—", "-").replace("–", "-"))
 
     def finish(self):
         self.queue.put(None)

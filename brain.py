@@ -70,7 +70,7 @@ def clean_ai_thought(thought: str, user_query: str = "") -> str:
     """
     if not thought or not isinstance(thought, str):
         return ""
-    t = thought.strip()
+    t = thought.strip().replace("—", "-").replace("–", "-")
     if not t:
         return ""
     # Filter out meta-reasoning about rules, restrictions, or instructions
@@ -87,8 +87,9 @@ def clean_ai_thought(thought: str, user_query: str = "") -> str:
 def sanitize_text(txt):
     """Sanitize text by stripping only raw secrets, internal backend URLs, and any accidental meta-instruction leakages."""
     if not isinstance(txt, str): return txt
+    t = txt.replace("—", "-").replace("–", "-")
     # Strip raw API keys (e.g. sk-xxxxxxxx or sk-nano-xxxxx patterns)
-    t = re.sub(r'\bsk-[A-Za-z0-9_-]{20,}\b', '[API_KEY_REDACTED]', txt)
+    t = re.sub(r'\bsk-[A-Za-z0-9_-]{20,}\b', '[API_KEY_REDACTED]', t)
     # Strip internal backend/cloudinary URLs only
     t = re.sub(r'(?i)https?://[a-zA-Z0-9.-]*cloudinary[a-zA-Z0-9./_~?&=-]*', '[INTERNAL_ASSET_URL]', t)
     t = re.sub(r'(?i)https?://[a-zA-Z0-9.-]*(pinterest|dribbble|awwwards|behance|design-md-backend)[a-zA-Z0-9./_-]*', '[TILUX_COLLECTION_URL]', t)
@@ -620,6 +621,15 @@ TOOLS = [
                         "type": "array",
                         "items": {"type": "object"},
                         "description": "Optional list of action steps for 'interact' mode (e.g. [{'type': 'fill', 'selector': '#q', 'value': 'news'}, {'type': 'click', 'selector': '#submit'}])"
+                    },
+                    "profile_name": {
+                        "type": "string",
+                        "description": "Optional profile name for persistent login sessions (e.g. 'default', 'render', 'vercel'). Keeps logins across runs."
+                    },
+                    "channel": {
+                        "type": "string",
+                        "enum": ["chrome", "msedge"],
+                        "description": "Optional browser engine: 'chrome' or 'msedge' to use installed Google Chrome or Microsoft Edge."
                     }
                 },
                 "required": ["action", "query_or_url"]
@@ -1561,7 +1571,9 @@ class Brain:
                             self.current_command = f"fast_browser_surf({act})"
                             self.notify_event_update()
                             t_surf0 = time.time()
-                            result = fast_browser_surf(act, q_or_u, steps)
+                            prof = args.get("profile_name", "default")
+                            ch = args.get("channel")
+                            result = fast_browser_surf(act, q_or_u, steps, profile_name=prof, channel=ch)
                             surf_dur = round(time.time() - t_surf0, 2)
                             self.current_status = f"Web {act} completed ({surf_dur}s)" if not is_voice else "Web task completed"
                             self.notify_event_update()

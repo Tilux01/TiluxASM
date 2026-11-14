@@ -155,18 +155,50 @@ def surf_read(url: str, max_chars: int = 6000) -> dict:
     except Exception:
         pass
 
-    # Tier 2 Fallback: Sandboxed Headless Playwright (Policy compliant: silent, sandboxed in temp)
+def get_browser_user_data_dir(profile_name: str = "default") -> str:
+    """
+    Returns a persistent cross-platform directory for browser automation profiles.
+    Keeps user login sessions (Render, Vercel, Supabase, GitHub, etc.) saved permanently across reboots.
+    Compatible across Windows, macOS, and Linux.
+    """
+    safe_profile = re.sub(r'[^a-zA-Z0-9_-]', '_', profile_name or "default")
+    if sys.platform == "win32":
+        appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        base_dir = os.path.join(appdata, "Tilux", "browser_profiles", safe_profile)
+    elif sys.platform == "darwin":
+        base_dir = os.path.expanduser(f"~/Library/Application Support/Tilux/browser_profiles/{safe_profile}")
+    else:
+        config_home = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+        base_dir = os.path.join(config_home, "tilux", "browser_profiles", safe_profile)
+        
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+        return base_dir
+    except Exception:
+        fallback = os.path.join(tempfile.gettempdir(), "tilux_browser_sandbox", safe_profile)
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+    # Tier 2 Fallback: Sandboxed Headless Playwright (Policy compliant: silent, persistent profile)
     try:
         from playwright.sync_api import sync_playwright
-        user_data_dir = os.path.join(tempfile.gettempdir(), "tilux_browser_sandbox")
-        os.makedirs(user_data_dir, exist_ok=True)
+        user_data_dir = get_browser_user_data_dir("default")
         
         with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
-            )
+            context = None
+            for ch in ["chrome", "msedge", None]:
+                try:
+                    kwargs = {
+                        "user_data_dir": user_data_dir,
+                        "headless": True,
+                        "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                    }
+                    if ch:
+                        kwargs["channel"] = ch
+                    context = p.chromium.launch_persistent_context(**kwargs)
+                    break
+                except Exception:
+                    continue
             page = context.pages[0] if context.pages else context.new_page()
             
             # Resource optimization: block media & font files to load 3x faster
@@ -199,15 +231,16 @@ def surf_read(url: str, max_chars: int = 6000) -> dict:
             "duration_seconds": round(time.time() - t0, 3)
         }
 
-def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000) -> dict:
+def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000, profile_name: str = "default", channel: str = None) -> dict:
     """
     Tier 2 Fast Web Automation:
     Executes form filling, clicking, and DOM inspection across Windows, macOS, and Linux.
     Preserves all policies:
-      - Sandboxed in tempfile.gettempdir()
+      - Uses persistent profile directory so logins (Render, Vercel, etc.) stay logged in
       - Silent background first (headless)
-      - Attaches to port 9222 CDP if browser is open, or launches optimized persistent context
-      - Resource blocking for fast execution
+      - Attaches to port 9222 CDP if active browser session is open
+      - Automatically detects installed Google Chrome or Microsoft Edge binaries
+      - Resource blocking (aborts images/fonts) for maximum interaction speed
     """
     t0 = time.time()
     url_clean = url.strip() if url else ""
@@ -220,8 +253,7 @@ def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000) -> dict
     except ImportError:
         return {"status": "error", "message": "Playwright is not available in the current environment."}
         
-    user_data_dir = os.path.join(tempfile.gettempdir(), "tilux_browser_sandbox")
-    os.makedirs(user_data_dir, exist_ok=True)
+    user_data_dir = get_browser_user_data_dir(profile_name)
     
     executed_steps = []
     try:
@@ -230,7 +262,7 @@ def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000) -> dict
             context = None
             is_cdp = False
             
-            # Fast-path: Check for active Chrome CDP on port 9222 (instant connection)
+            # Fast-path: Check for active Chrome/Edge CDP on port 9222 (instant connection)
             try:
                 import urllib.request
                 with urllib.request.urlopen("http://localhost:9222/json/version", timeout=0.8) as cdp_check:
@@ -242,11 +274,20 @@ def surf_interact(url: str, steps: list = None, timeout_ms: int = 15000) -> dict
                 pass
                 
             if not context:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=user_data_dir,
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
-                )
+                launch_channels = [channel] if channel else ["chrome", "msedge", None]
+                for ch in launch_channels:
+                    try:
+                        kwargs = {
+                            "user_data_dir": user_data_dir,
+                            "headless": True,
+                            "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                        }
+                        if ch:
+                            kwargs["channel"] = ch
+                        context = p.chromium.launch_persistent_context(**kwargs)
+                        break
+                    except Exception:
+                        continue
                 
             page = context.pages[0] if context.pages else context.new_page()
             
@@ -334,7 +375,9 @@ def run_browser_task(payload: dict) -> dict:
     elif action in ["read", "fetch", "scrape", "get"]:
         return surf_read(query_or_url, max_chars=payload.get("max_chars", 6000))
     elif action in ["interact", "automate", "click", "fill"]:
-        return surf_interact(query_or_url, steps=steps, timeout_ms=payload.get("timeout_ms", 15000))
+        prof = payload.get("profile_name") or payload.get("user_profile") or "default"
+        ch = payload.get("channel") or payload.get("browser_channel")
+        return surf_interact(query_or_url, steps=steps, timeout_ms=payload.get("timeout_ms", 15000), profile_name=prof, channel=ch)
     else:
         # Auto-detect intent: if starts with http or domain format, read it; otherwise search it
         if query_or_url.startswith("http://") or query_or_url.startswith("https://") or ("." in query_or_url and "/" in query_or_url):

@@ -218,12 +218,16 @@
                     if (mainEl && mainEl.innerText !== "Speaking...") {
                         mainEl.innerText = "Speaking...";
                     }
+                    function filterDashes(text) {
+                        if (!text) return "";
+                        return String(text).replace(/[\u2014\u2015\u2013]/g, "-");
+                    }
+
                     if (subEl) {
-                        subEl.innerText = data.reply_text || data.sub_text || "";
+                        subEl.innerText = filterDashes(data.reply_text || data.sub_text || "");
                         subEl.style.color = "#c084fc";
                     }
-                }
- else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
+                } else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
                     if (mainEl && mainEl.innerText !== data.main_text) {
                         mainEl.innerText = data.main_text;
                     }
@@ -233,20 +237,20 @@
                 } else {
                     // Processing / Thinking / Running Command
                     if (mainEl && data.main_text && data.main_text !== fullMainText) {
-                        fullMainText = data.main_text;
+                        fullMainText = filterDashes(data.main_text);
                         mainEl.innerText = fullMainText;
                     }
 
                     if (subEl) {
-                        const sub = (data.sub_text || "").trim();
-                        const th = (data.thought_text || "").trim();
-                        const cmd = (data.command_text || "").trim();
+                        const sub = filterDashes(data.sub_text || "").trim();
+                        const th = filterDashes(data.thought_text || "").trim();
+                        const cmd = filterDashes(data.command_text || "").trim();
                         const mainLower = (data.main_text || "").trim().toLowerCase();
 
                         // Clean process status: NEVER echo rules, restrictions, or user's question
                         function sanitizeProcess(text) {
                             if (!text) return "";
-                            let t = text.trim();
+                            let t = filterDashes(text).trim();
                             const tLower = t.toLowerCase();
 
                             // Filter out any meta rule / policy / instruction references
@@ -287,7 +291,7 @@
                             processText = cleanTh ? `Thinking: ${cleanTh}` : "Thinking...";
                         }
 
-                        subEl.innerText = processText;
+                        subEl.innerText = filterDashes(processText);
                         subEl.style.color = "#9ca3af";
                     }
                 }
