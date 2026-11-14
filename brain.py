@@ -5,7 +5,7 @@ import threading
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from actions import execute_bash_command, save_to_memory, remove_from_memory, update_settings, execute_python_code, generate_image, remove_image_background, smart_action_router, log_failed_action, execute_batched_perception_action, execute_category_task
+from actions import execute_bash_command, save_to_memory, remove_from_memory, update_settings, execute_python_code, generate_image, remove_image_background, smart_action_router, log_failed_action, execute_batched_perception_action, execute_category_task, fast_browser_surf
 from memory import load_memory
 
 load_dotenv()
@@ -300,8 +300,9 @@ You have native tools to execute commands, automate apps, and manage settings on
   - Pre-installed runtime packages: `pyautogui`, `pyperclip`, `pygetwindow`, `mss`, `pytesseract`, `requests`, `PIL`, `playwright`, `browser-use`. Do NOT try to `pip install` them or check virtual environments; execute directly.
   - **SPEED & RESILIENCE:** Prefer keyboard shortcuts over mouse clicks. Use `pyperclip.copy()` + `hotkey({paste_hotkey})` for text injection to prevent typing lags.
   - **APP FOCUS:** Ensure target app window is focused before sending keystrokes (`smart_action_router(app, "focus")` or OS window manager).
-  - **WEB AUTOMATION:** For complex web tasks, use `playwright` or `browser-use`. Always sandbox browser profiles into the OS temp directory (`tempfile.gettempdir()`) to preserve login sessions without locking active windows.
-  - **SILENT BACKGROUND FIRST:** Media, file manipulation, and system commands should execute silently in the background without bringing windows to front or taking desktop screenshots unless requested by the user.
+- `fast_browser_surf`: THE FASTEST WAY TO SURF THE WEB, SEARCH, AND AUTOMATE BROWSERS. Use 'search' to find live web info (<1.5s), 'read' to extract clean page text/markdown without opening heavy windows (<0.8s), or 'interact' for dynamic form filling and clicking. Runs silently with zero lag across Windows, macOS, and Linux.
+  - **WEB AUTOMATION POLICIES:** For complex web tasks or programmatic scripts, use `fast_browser_surf`, `playwright`, or `browser-use`. Always sandbox browser profiles into the OS temp directory (`tempfile.gettempdir()`) to preserve login sessions without locking active windows.
+  - **SILENT BACKGROUND FIRST:** Media, web tasks, file manipulation, and system commands should execute silently in the background without bringing windows to front or taking desktop screenshots unless requested by the user.
 - `save_to_memory`: Use when the user gives you a new rule, instruction, or preference to remember.
 - `remove_from_memory`: Use when the user tells you to forget a rule.
 - DO NOT just tell the user you will do it. YOU must do it using the tool.
@@ -595,6 +596,33 @@ TOOLS = [
                         "description": "If true, returns a list of all saved chat sessions with their IDs, titles, and timestamps."
                     }
                 }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fast_browser_surf",
+            "description": "The fastest way to surf the web, search online, read articles, or automate browser tasks across Windows, macOS, and Linux with zero visual lag. Use 'search' to find information (<1.5s), 'read' to extract clean page text (<0.8s), or 'interact' for dynamic form filling and clicks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["search", "read", "interact"],
+                        "description": "'search' to look up web queries, 'read' to extract clean readable text from a URL, 'interact' for dynamic web actions (clicks, form filling)"
+                    },
+                    "query_or_url": {
+                        "type": "string",
+                        "description": "The search term or target website URL"
+                    },
+                    "interaction_steps": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Optional list of action steps for 'interact' mode (e.g. [{'type': 'fill', 'selector': '#q', 'value': 'news'}, {'type': 'click', 'selector': '#submit'}])"
+                    }
+                },
+                "required": ["action", "query_or_url"]
             }
         }
     }
@@ -1525,6 +1553,19 @@ class Brain:
                             self.current_status = f"Executing Category Executor: {cat}..."
                             result = execute_category_task(cat, payl_json)
                             steps_taken.append(f"Executed category executor for {cat}")
+                        elif function_name == "fast_browser_surf":
+                            act = args.get("action", "search")
+                            q_or_u = args.get("query_or_url", "")
+                            steps = args.get("interaction_steps", [])
+                            self.current_status = f"Searching web: {q_or_u[:35]}..." if act == "search" else f"Browsing {act}: {q_or_u[:35]}..."
+                            self.current_command = f"fast_browser_surf({act})"
+                            self.notify_event_update()
+                            t_surf0 = time.time()
+                            result = fast_browser_surf(act, q_or_u, steps)
+                            surf_dur = round(time.time() - t_surf0, 2)
+                            self.current_status = f"Web {act} completed ({surf_dur}s)" if not is_voice else "Web task completed"
+                            self.notify_event_update()
+                            steps_taken.append(f"Fast browser surf ({act}): {q_or_u}")
                         elif function_name == "get_session_history":
                             import json, os, re as _re
                             target_sid = args.get("session_id") or getattr(self, "current_session_id", None)

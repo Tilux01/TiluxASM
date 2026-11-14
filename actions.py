@@ -721,6 +721,15 @@ def execute_category_task(category: str, payload_json: str = "{}") -> str:
             res = run_file_task(data)
             return json.dumps(res) if isinstance(res, dict) else str(res)
 
+        elif cat_clean in ["browser", "web", "surf", "search", "scrape"]:
+            try:
+                from executors.browser_executor import run_browser_task
+            except ImportError:
+                import browser_executor as run_browser_task_mod
+                run_browser_task = run_browser_task_mod.run_browser_task
+            res = run_browser_task(data)
+            return json.dumps(res) if isinstance(res, dict) else str(res)
+
         else:
             try:
                 from executors.messaging_executor import run_messaging_task
@@ -731,6 +740,34 @@ def execute_category_task(category: str, payload_json: str = "{}") -> str:
             return json.dumps(res) if isinstance(res, dict) else str(res)
     except Exception as e:
         return f"Category task execution failed: {str(e)}"
+
+def fast_browser_surf(action: str, query_or_url: str, interaction_steps: list = None) -> str:
+    """
+    Ultra-fast web surfing and browser automation across Windows, macOS, and Linux.
+    - 'search': Searches online and returns structured results (<1.5s).
+    - 'read': Extracts clean page text and markdown without opening heavy windows (<0.8s).
+    - 'interact': Executes interactive clicking, form filling, and DOM inspection.
+    """
+    import os, sys, json
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    exec_dir = os.path.join(base_dir, "executors")
+    for p in [base_dir, exec_dir]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+    try:
+        from executors.browser_executor import run_browser_task
+    except ImportError:
+        import browser_executor as run_browser_task_mod
+        run_browser_task = run_browser_task_mod.run_browser_task
+
+    payload = {
+        "action": action,
+        "query_or_url": query_or_url,
+        "steps": interaction_steps or []
+    }
+    res = run_browser_task(payload)
+    return json.dumps(res, indent=2) if isinstance(res, dict) else str(res)
 
 def take_screenshot(output_path: str = None) -> str:
     """

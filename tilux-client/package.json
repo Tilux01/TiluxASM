@@ -52,6 +52,7 @@
           "!**/executors/file_executor.py",
           "!**/executors/media_executor.py",
           "!**/executors/messaging_executor.py",
+          "!**/executors/browser_executor.py",
           "!**/user_personal.json",
           "!**/memory.json",
           "!**/chat_sessions.json",
