@@ -732,3 +732,80 @@ def execute_category_task(category: str, payload_json: str = "{}") -> str:
     except Exception as e:
         return f"Category task execution failed: {str(e)}"
 
+def take_screenshot(output_path: str = None) -> str:
+    """
+    Takes an instant screenshot and saves it locally.
+    Cross-platform: Windows, macOS, and Linux.
+    Returns the absolute path to the saved screenshot image.
+    """
+    import os, datetime, platform, subprocess
+    sys_name = platform.system()
+
+    if not output_path:
+        home = os.path.expanduser("~")
+        pictures_dir = os.path.join(home, "Pictures")
+        if not os.path.exists(pictures_dir):
+            try:
+                os.makedirs(pictures_dir, exist_ok=True)
+            except Exception:
+                pictures_dir = home
+        ts = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_path = os.path.join(pictures_dir, f"Screenshot_{ts}.png")
+
+    output_path = os.path.abspath(output_path)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # 1. Primary Cross-Platform Attempt: PIL.ImageGrab (Fast, standard Pillow)
+    try:
+        from PIL import ImageGrab
+        img = ImageGrab.grab()
+        if img:
+            img.save(output_path)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return output_path
+    except Exception:
+        pass
+
+    # 2. Secondary Cross-Platform Attempt: mss
+    try:
+        import mss
+        with mss.mss() as sct:
+            sct.shot(output=output_path)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return output_path
+    except Exception:
+        pass
+
+    # 3. Native OS CLI Fallbacks
+    if sys_name == "Darwin":
+        # Native macOS silent screencapture
+        subprocess.run(["screencapture", "-x", output_path], check=False)
+    elif sys_name == "Windows":
+        # PowerShell System.Drawing fallback on Windows
+        ps_script = f"""
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
+        $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+        $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+        $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+        $bmp.Save('{output_path.replace(chr(92), chr(92)+chr(92))}', [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose()
+        $bmp.Dispose()
+        """
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script], check=False)
+    else:
+        # Linux fallbacks
+        for cmd in [
+            f"scrot '{output_path}'",
+            f"import -window root '{output_path}'",
+            f"gnome-screenshot -f '{output_path}'",
+            f"spectacle -b -o '{output_path}'"
+        ]:
+            if subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                break
+
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+        return output_path
+    raise RuntimeError("Failed to capture screenshot with available display drivers.")
+

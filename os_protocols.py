@@ -164,15 +164,16 @@ class WindowsProtocol:
 
     @classmethod
     def media_set_volume(cls, level_percent: int) -> dict:
-        """Sets Windows system master volume via PowerShell audio endpoint."""
-        val = max(0.0, min(1.0, float(level_percent) / 100.0))
-        ps_cmd = f"""
-        $wsh = New-Object -ComObject WScript.Shell
-        # Set volume using Windows Audio Device Endpoint
-        [Audio]::Volume = {val}
-        """
-        # Alternatively, simulate volume steps
-        return {"status": "success", "os": "Windows", "action": "set_volume", "output": f"Set volume to {level_percent}%"}
+        """Sets Windows system master volume deterministically via Win32 VK keys."""
+        target = max(0, min(100, int(level_percent)))
+        # Step down to 0%
+        for _ in range(50):
+            cls._send_vk_key(cls.VK_VOLUME_DOWN)
+        # Step up to target% (each key press is 2%)
+        steps_up = target // 2
+        for _ in range(steps_up):
+            cls._send_vk_key(cls.VK_VOLUME_UP)
+        return {"status": "success", "os": "Windows", "action": "set_volume", "output": f"Set volume to {target}%"}
 
     @classmethod
     def media_volume_up(cls, step_percent: int = 5) -> dict:

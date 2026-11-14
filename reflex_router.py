@@ -442,7 +442,7 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             if sys_name == "Windows":
                 subprocess.Popen("rundll32.exe user32.dll,LockWorkStation", shell=True)
             elif sys_name == "Darwin":
-                subprocess.Popen("pmset displaysleepnow", shell=True)
+                subprocess.Popen("osascript -e 'tell application \"System Events\" to keystroke \"q\" using {control down, command down}' 2>/dev/null || pmset displaysleepnow", shell=True)
             else:
                 subprocess.Popen("loginctl lock-session 2>/dev/null || xdg-screensaver lock 2>/dev/null || gnome-screensaver-command -l 2>/dev/null || true", shell=True)
             return {
