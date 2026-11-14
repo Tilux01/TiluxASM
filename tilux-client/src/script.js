@@ -1,31 +1,3 @@
-// Apply platform-specific styling class to document body (e.g., platform-darwin, platform-linux, platform-win32)
-if (window.electronAPI && window.electronAPI.platform) {
-    document.documentElement.classList.add('platform-' + window.electronAPI.platform);
-    if (document.body) {
-        document.body.classList.add('platform-' + window.electronAPI.platform);
-    } else {
-        document.addEventListener('DOMContentLoaded', () => {
-            document.body.classList.add('platform-' + window.electronAPI.platform);
-        });
-    }
-}
-
-function minimizeAppWindow() {
-    if (window.electronAPI && window.electronAPI.minimizeWindow) {
-        window.electronAPI.minimizeWindow();
-    }
-}
-function maximizeAppWindow() {
-    if (window.electronAPI && window.electronAPI.maximizeWindow) {
-        window.electronAPI.maximizeWindow();
-    }
-}
-function closeAppWindow() {
-    if (window.electronAPI && window.electronAPI.closeWindow) {
-        window.electronAPI.closeWindow();
-    }
-}
-
 let selectedFiles = [];
 
 let selectedTopupAmount = 1;

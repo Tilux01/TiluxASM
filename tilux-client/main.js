@@ -1,4 +1,7 @@
-const { app, BrowserWindow, ipcMain, Notification, nativeImage, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, nativeImage, Menu, shell, nativeTheme } = require('electron');
+
+// Enforce dark mode for native window chrome (enables dark titlebar on macOS automatically without manual styling)
+nativeTheme.themeSource = 'dark';
 
 // Completely disable Electron default application menu across all windows
 Menu.setApplicationMenu(null);
@@ -265,7 +268,6 @@ function createWindow () {
     const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
     const iconPath = path.join(__dirname, 'src', iconName);
     const appIcon = nativeImage.createFromPath(iconPath);
-    const isMac = process.platform === 'darwin';
     const isDebugMode = process.argv.includes('--debug') || process.env.TILUX_DEBUG === '1';
     mainWindow = new BrowserWindow({
         width: 1200,
@@ -273,13 +275,12 @@ function createWindow () {
         minWidth: 900,
         minHeight: 600,
         backgroundColor: '#07060a',
-        titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
-        titleBarOverlay: isMac ? false : {
+        titleBarStyle: process.platform === 'win32' ? 'hidden' : 'default',
+        titleBarOverlay: process.platform === 'win32' ? {
             color: '#07060a',
             symbolColor: '#ffffff',
             height: 38
-        },
-        trafficLightPosition: isMac ? { x: 18, y: 18 } : undefined,
+        } : false,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: true, // required for ipcRenderer in loading.html
@@ -542,23 +543,5 @@ ipcMain.on('restart-app-and-server', () => {
 
     app.relaunch();
     app.exit(0);
-});
-
-ipcMain.on('window-minimize', () => {
-    if (mainWindow) mainWindow.minimize();
-});
-
-ipcMain.on('window-maximize', () => {
-    if (mainWindow) {
-        if (mainWindow.isMaximized()) {
-            mainWindow.unmaximize();
-        } else {
-            mainWindow.maximize();
-        }
-    }
-});
-
-ipcMain.on('window-close', () => {
-    if (mainWindow) mainWindow.close();
 });
 
