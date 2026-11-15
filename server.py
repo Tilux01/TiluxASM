@@ -256,11 +256,16 @@ def _on_wake_word(initial_phrase=""):
             electron_bin = os.path.join("tilux-client", "node_modules", ".bin", electron_name)
             if os.path.exists(electron_bin):
                 current_widget_proc = subprocess.Popen([electron_bin, "./tilux-client", "--widget"], shell=is_win)
+            elif exe_path and exe_path != "npm" and os.path.exists(exe_path):
+                current_widget_proc = subprocess.Popen([exe_path, "--widget"])
             elif exe_path == "npm":
                 npm_cmd = "npm.cmd" if is_win else "npm"
                 current_widget_proc = subprocess.Popen([npm_cmd, "start", "--", "--widget"], cwd="tilux-client", shell=is_win)
             else:
-                current_widget_proc = subprocess.Popen([exe_path, "--widget"])
+                try:
+                    current_widget_proc = subprocess.Popen([exe_path, "--widget"])
+                except Exception:
+                    pass
     
     def background_task(my_proc, queued_initial=""):
         global WIDGET_STATE, is_voice_assistant_active

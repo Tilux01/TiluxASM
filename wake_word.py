@@ -146,11 +146,6 @@ class WakeWordEngine:
                 return True, trailing
         return False, ""
 
-    def _audio_callback(self, indata, frames, time_info, status):
-        if status:
-            pass
-        self.q.put(bytes(indata))
-
     def pause(self):
         self.is_paused = True
         
@@ -162,6 +157,38 @@ class WakeWordEngine:
             except queue.Empty:
                 break
         self.is_paused = False
+
+    def _get_input_stream_config(self):
+        """Finds optimal microphone stream configuration: native 16kHz or hardware rate with transparent downsampling."""
+        if sd is None:
+            return 16000, 2000, False
+        # 1. Native 16000Hz stream (direct pass-through, zero overhead)
+        try:
+            sd.check_input_settings(samplerate=16000, channels=1, dtype='int16')
+            return 16000, 2000, False
+        except Exception:
+            pass
+
+        # 2. Windows WASAPI or driver shared mode requiring 48kHz or 44.1kHz
+        candidates = [48000, 44100, 32000, 22050]
+        try:
+            dev_info = sd.query_devices(kind='input')
+            preferred = int(dev_info.get('default_samplerate', 48000))
+            if preferred in candidates:
+                candidates.remove(preferred)
+            candidates.insert(0, preferred)
+        except Exception:
+            pass
+
+        for sr in candidates:
+            try:
+                sd.check_input_settings(samplerate=sr, channels=1, dtype='int16')
+                block_size = int(sr * 0.125) # ~125ms chunk
+                return sr, block_size, True
+            except Exception:
+                continue
+
+        return 16000, 2000, False
 
     def _listen_loop(self):
         if not os.path.exists(self.model_path) or Model is None:
@@ -182,10 +209,28 @@ class WakeWordEngine:
             triggered = False
             triggered_trailing = ""
             try:
-                # 2000 samples @ 16kHz = 125ms chunks for low-latency streaming recognition
-                with sd.RawInputStream(samplerate=16000, blocksize=2000, dtype='int16',
-                                       channels=1, callback=self._audio_callback):
-                    print("[WakeWord] Engine started and listening on 16000Hz...")
+                hw_rate, block_size, needs_downsample = self._get_input_stream_config()
+
+                def _stream_callback(indata, frames, time_info, status):
+                    if status:
+                        pass
+                    if not needs_downsample:
+                        self.q.put(bytes(indata))
+                    else:
+                        try:
+                            import numpy as np
+                            raw_pcm = np.frombuffer(indata, dtype=np.int16)
+                            target_len = int(round(len(raw_pcm) * 16000 / hw_rate))
+                            indices = np.linspace(0, len(raw_pcm) - 1, target_len)
+                            resampled = np.interp(indices, np.arange(len(raw_pcm)), raw_pcm).astype(np.int16)
+                            self.q.put(resampled.tobytes())
+                        except Exception:
+                            self.q.put(bytes(indata))
+
+                mode_label = "16000Hz native" if not needs_downsample else f"{hw_rate}Hz -> 16000Hz (downsampled)"
+                with sd.RawInputStream(samplerate=hw_rate, blocksize=block_size, dtype='int16',
+                                       channels=1, callback=_stream_callback):
+                    print(f"[WakeWord] Engine started and listening ({mode_label})...")
                     recognizer.Reset()
                     while self.is_running and not self.is_paused:
                         try:

@@ -786,15 +786,36 @@ def listen(on_recording_done=None) -> str:
     if since_tts < 0.40:
         time.sleep(max(0.05, 0.40 - since_tts))
         
+    hw_rate = 16000
+    try:
+        sd.check_input_settings(samplerate=16000, channels=1, dtype='float32')
+    except Exception:
+        candidates = [48000, 44100, 32000, 22050]
+        try:
+            dev_info = sd.query_devices(kind='input')
+            preferred = int(dev_info.get('default_samplerate', 48000))
+            if preferred in candidates:
+                candidates.remove(preferred)
+            candidates.insert(0, preferred)
+        except Exception:
+            pass
+        for cand in candidates:
+            try:
+                sd.check_input_settings(samplerate=cand, channels=1, dtype='float32')
+                hw_rate = cand
+                break
+            except Exception:
+                continue
+
     sample_rate = 16000
-    print("[Voice] Listening for user speech...")
+    print(f"[Voice] Listening for user speech (recording at {hw_rate}Hz)...")
     
     audio_buffer = []
     
     import numpy as np
     import sounddevice as sd
     
-    frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
+    frames_per_chunk = int(hw_rate * 0.10) # 0.10 seconds per chunk
     chunk_sec = 0.10
     
     SILENCE_DURATION = 0.85     # Seconds of trailing silence to finalize recording (~850ms natural pause)
@@ -805,7 +826,7 @@ def listen(on_recording_done=None) -> str:
     max_silence_chunks = int(SILENCE_DURATION / chunk_sec)
     max_chunks = int(MAX_RECORD_DURATION / chunk_sec)
     initial_timeout_chunks = int(INITIAL_TIMEOUT / chunk_sec)
-    min_speech_chunks = int(0.35 / chunk_sec) # At least 3-4 chunks (~350ms) of sustained speech
+    min_speech_chunks = int(0.20 / chunk_sec) # At least 2 chunks (~200ms) of sustained speech
     
     silence_chunks_count = 0
     speech_chunks_count = 0
@@ -815,9 +836,9 @@ def listen(on_recording_done=None) -> str:
     
     # Dynamic Adaptive VAD: calibrate against actual room/mic noise floor
     ambient_samples = []
-    ambient_floor = 0.015
-    dynamic_speech_threshold = 0.038
-    dynamic_silence_threshold = 0.020
+    ambient_floor = 0.012
+    dynamic_speech_threshold = 0.020
+    dynamic_silence_threshold = 0.012
     is_calibrated = False
 
     # Low-Frequency Hum Filter: 160Hz 2nd-order Butterworth high-pass filter
@@ -825,14 +846,14 @@ def listen(on_recording_done=None) -> str:
     zi = None
     try:
         import scipy.signal as signal
-        sos = signal.butter(2, 160.0 / (sample_rate / 2.0), btype='high', output='sos')
+        sos = signal.butter(2, 160.0 / (hw_rate / 2.0), btype='high', output='sos')
         zi = signal.sosfilt_zi(sos)
     except Exception:
         pass
     
     try:
         with noalsaerr():
-            with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
+            with sd.InputStream(samplerate=hw_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
                 # Discard initial capture buffer frames (flushes ADC click / sound card startup transient)
                 for _ in range(2):
                     try:
@@ -871,8 +892,8 @@ def listen(on_recording_done=None) -> str:
                         ambient_samples.append(rms)
                         if len(ambient_samples) >= 3:
                             ambient_floor = float(np.median(ambient_samples))
-                            dynamic_speech_threshold = max(0.038, (ambient_floor * 2.2) + 0.012)
-                            dynamic_silence_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
+                            dynamic_speech_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
+                            dynamic_silence_threshold = max(0.012, (ambient_floor * 1.15) + 0.003)
                             is_calibrated = True
                     
                     # 2. Track speech detection
@@ -885,13 +906,14 @@ def listen(on_recording_done=None) -> str:
                             peak_speech_rms = rms
                         else:
                             # Adaptively track rising background noise (e.g. laptop fan/AC hum)
-                            ambient_floor = (0.90 * ambient_floor) + (0.10 * rms)
-                            dynamic_speech_threshold = max(0.038, (ambient_floor * 2.2) + 0.012)
-                            dynamic_silence_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
+                            if rms < 0.030:
+                                ambient_floor = (0.90 * ambient_floor) + (0.10 * rms)
+                                dynamic_speech_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
+                                dynamic_silence_threshold = max(0.012, (ambient_floor * 1.15) + 0.003)
                     else:
                         peak_speech_rms = max(peak_speech_rms, rms)
                         # A chunk is considered active speech if it exceeds dynamic threshold or is within speech dynamic range
-                        is_speech = (rms >= dynamic_silence_threshold and rms >= (peak_speech_rms * 0.40)) or (rms >= dynamic_speech_threshold)
+                        is_speech = (rms >= dynamic_silence_threshold and rms >= (peak_speech_rms * 0.35)) or (rms >= dynamic_speech_threshold)
                         if is_speech:
                             speech_chunks_count += 1
                             silence_chunks_count = 0
@@ -899,9 +921,9 @@ def listen(on_recording_done=None) -> str:
                         else:
                             silence_chunks_count += 1
                             # Transient noise / click rejection:
-                            # If we triggered on a brief spike (< min_speech_chunks) and silence immediately resumes for 3 chunks (~300ms),
+                            # If we triggered on a brief spike (< min_speech_chunks) and silence immediately resumes for 5 chunks (~500ms),
                             # it was an isolated room blip or echo tail, NOT human speech. Reset and continue waiting!
-                            if speech_chunks_count < min_speech_chunks and silence_chunks_count >= 3:
+                            if speech_chunks_count < min_speech_chunks and silence_chunks_count >= 5:
                                 has_spoken = False
                                 speech_chunks_count = 0
                                 silence_chunks_count = 0
@@ -938,8 +960,14 @@ def listen(on_recording_done=None) -> str:
             
         audio_np = np.concatenate(audio_buffer)
 
-        # Discard audio if total captured length is too short to be speech (< 0.35s)
-        if len(audio_np) < int(sample_rate * 0.35):
+        # Resample to 16000Hz if recorded at hardware rate (e.g. 48kHz or 44.1kHz)
+        if hw_rate != 16000:
+            target_len = int(round(len(audio_np) * 16000 / hw_rate))
+            indices = np.linspace(0, len(audio_np) - 1, target_len)
+            audio_np = np.interp(indices, np.arange(len(audio_np)), audio_np).astype(np.float32)
+
+        # Discard audio if total captured length is too short to be speech (< 0.20s)
+        if len(audio_np) < int(sample_rate * 0.20):
             print(f"[Voice] Audio segment too brief ({len(audio_np)/sample_rate:.2f}s). Ignoring noise blip.")
             return ""
 

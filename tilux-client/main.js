@@ -42,6 +42,9 @@ function syncBackendCode(src, dest) {
     try {
         const entries = fs.readdirSync(src, { withFileTypes: true });
         for (let entry of entries) {
+            if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) {
+                continue;
+            }
             const srcPath = path.join(src, entry.name);
             const destPath = path.join(dest, entry.name);
 
@@ -63,6 +66,19 @@ function syncBackendCode(src, dest) {
                 // Always overwrite code files (.py, .pyd, .so, etc.) so updates immediately take effect!
                 try {
                     fs.copyFileSync(srcPath, destPath);
+                    // Clear any stale cached pyc if present
+                    const pycName = `${path.parse(entry.name).name}.cpython-*.pyc`;
+                    const pycacheDir = path.join(dest, '__pycache__');
+                    if (fs.existsSync(pycacheDir)) {
+                        try {
+                            const cached = fs.readdirSync(pycacheDir);
+                            for (const c of cached) {
+                                if (c.startsWith(path.parse(entry.name).name)) {
+                                    fs.unlinkSync(path.join(pycacheDir, c));
+                                }
+                            }
+                        } catch (_) {}
+                    }
                 } catch (err) {
                     console.error(`[Sync] Failed to sync ${entry.name}:`, err);
                 }
@@ -121,7 +137,9 @@ async function setupAndRunBackend() {
         if (fs.existsSync(bundledPython)) {
             console.log(`[Tilux] Pre-bundled standalone Python runtime found: ${bundledPython}`);
             pyExe = bundledPython;
-            script = path.join(resourcesBackend, 'server.py');
+            script = fs.existsSync(path.join(backendCwd, 'server.py')) 
+                ? path.join(backendCwd, 'server.py') 
+                : path.join(resourcesBackend, 'server.py');
             
             // Ensure userData/backend directory exists for writable files (e.g. host_id, settings)
             if (!fs.existsSync(backendCwd)) {
@@ -499,17 +517,23 @@ function createWakeWindow(showImmediately = true) {
 
     wakeWindow.loadFile(path.join(__dirname, 'src', 'wake_popup.html'));
     
-    // Position at the bottom center of the screen with plenty of headroom at the top for glow
+    // Position at the bottom center of the screen workArea (above the taskbar with glow headroom)
     const { screen } = require('electron');
     const primaryDisplay = screen.getPrimaryDisplay();
-    const { width, height } = primaryDisplay.bounds;
+    const workArea = primaryDisplay.workArea;
     
     wakeWindow.setBounds({
-        x: Math.round(width / 2 - (winWidth / 2)),
-        y: Math.round(height - 290),
+        x: Math.round(workArea.x + (workArea.width / 2) - (winWidth / 2)),
+        y: Math.round(workArea.y + workArea.height - winHeight + 10),
         width: winWidth,
         height: winHeight
     });
+
+    if (process.platform === 'win32') {
+        wakeWindow.setAlwaysOnTop(true, 'screen-saver');
+    } else {
+        wakeWindow.setAlwaysOnTop(true, 'floating');
+    }
     
     if (showImmediately) {
         wakeWindow.show();
