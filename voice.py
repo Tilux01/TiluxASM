@@ -768,39 +768,6 @@ def _filter_echo(text: str) -> str:
                 return ""
     return text
 
-def get_supported_input_samplerate() -> int:
-    import sounddevice as sd
-    candidates = [16000, 48000, 44100, 32000, 22050]
-    try:
-        dev_info = sd.query_devices(kind='input')
-        preferred = int(dev_info.get('default_samplerate', 16000))
-        if preferred in candidates:
-            candidates.remove(preferred)
-        candidates.insert(0, preferred)
-    except Exception:
-        pass
-    for rate in candidates:
-        try:
-            sd.check_input_settings(samplerate=rate, channels=1, dtype='float32')
-            return rate
-        except Exception:
-            continue
-    return 16000
-
-def _resample_to_16k(audio_np, orig_sr: int):
-    import numpy as np
-    if orig_sr == 16000 or len(audio_np) == 0:
-        return audio_np
-    try:
-        from scipy import signal
-        num_target_samples = int(len(audio_np) * 16000 / orig_sr)
-        return signal.resample(audio_np, num_target_samples).astype(np.float32)
-    except Exception:
-        target_len = int(len(audio_np) * 16000 / orig_sr)
-        orig_indices = np.linspace(0, len(audio_np) - 1, len(audio_np))
-        target_indices = np.linspace(0, len(audio_np) - 1, target_len)
-        return np.interp(target_indices, orig_indices, audio_np).astype(np.float32)
-
 def listen(on_recording_done=None) -> str:
     """Listens to the microphone using ultra-fast dynamic VAD and returns transcribed text."""
     model = get_whisper_model()
@@ -819,15 +786,16 @@ def listen(on_recording_done=None) -> str:
     if since_tts < 0.40:
         time.sleep(max(0.05, 0.40 - since_tts))
         
-    input_sample_rate = get_supported_input_samplerate()
-    chunk_sec = 0.10
-    frames_per_chunk = int(input_sample_rate * chunk_sec)
-    print(f"[Voice] Listening for user speech on {input_sample_rate}Hz...")
+    sample_rate = 16000
+    print("[Voice] Listening for user speech...")
     
     audio_buffer = []
     
     import numpy as np
     import sounddevice as sd
+    
+    frames_per_chunk = 1600     # 0.10 seconds per chunk at 16kHz
+    chunk_sec = 0.10
     
     SILENCE_DURATION = 0.85     # Seconds of trailing silence to finalize recording (~850ms natural pause)
     MAX_RECORD_DURATION = 15.0  # Max seconds for a single voice utterance (avoids giant audio buffers)
@@ -857,14 +825,14 @@ def listen(on_recording_done=None) -> str:
     zi = None
     try:
         import scipy.signal as signal
-        sos = signal.butter(2, 160.0 / (input_sample_rate / 2.0), btype='high', output='sos')
+        sos = signal.butter(2, 160.0 / (sample_rate / 2.0), btype='high', output='sos')
         zi = signal.sosfilt_zi(sos)
     except Exception:
         pass
     
     try:
         with noalsaerr():
-            with sd.InputStream(samplerate=input_sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
+            with sd.InputStream(samplerate=sample_rate, channels=1, dtype='float32', blocksize=frames_per_chunk) as stream:
                 # Discard initial capture buffer frames (flushes ADC click / sound card startup transient)
                 for _ in range(2):
                     try:
@@ -969,9 +937,6 @@ def listen(on_recording_done=None) -> str:
             return ""
             
         audio_np = np.concatenate(audio_buffer)
-        if input_sample_rate != 16000:
-            audio_np = _resample_to_16k(audio_np, input_sample_rate)
-        sample_rate = 16000
 
         # Discard audio if total captured length is too short to be speech (< 0.35s)
         if len(audio_np) < int(sample_rate * 0.35):
