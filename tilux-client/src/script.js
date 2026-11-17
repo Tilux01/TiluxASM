@@ -213,6 +213,7 @@ async function executePayment() {
 }
 
 function updateDesktopBillingStatus() {
+    if (document.hidden) return;
     fetchBillingData();
 }
 setInterval(updateDesktopBillingStatus, 5000);
@@ -1165,6 +1166,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     async function fetchSystemStats() {
+        if (document.hidden) return;
         try {
             const res = await fetch('http://127.0.0.1:8932/api/system');
             const data = await res.json();
@@ -1334,10 +1336,23 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchSystemStats, 3000); // Update stats every 3s
     fetchSystemStats(); // Initial fetch
 
+    let isCheckingWake = false;
+    let wakeCheckTimeout = null;
+
     async function checkWakeWord() {
-        if (isProcessingText) return;
+        if (isCheckingWake || isProcessingText) {
+            scheduleWakeCheck(document.hidden ? 400 : 150);
+            return;
+        }
+        isCheckingWake = true;
         try {
-            const res = await fetch('http://127.0.0.1:8932/api/wake_word');
+            const controller = new AbortController();
+            const abortTimeout = setTimeout(() => controller.abort(), 1200);
+            const res = await fetch('http://127.0.0.1:8932/api/wake_word', {
+                signal: controller.signal,
+                cache: 'no-store'
+            });
+            clearTimeout(abortTimeout);
             const data = await res.json();
 
             // 1. Handle command to open main workspace chatbox for heavy reasoning tasks
@@ -1352,6 +1367,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 inputField.value = data.open_chat_prompt;
                 sendText(false);
+                isCheckingWake = false;
+                scheduleWakeCheck(150);
                 return;
             }
 
@@ -1364,10 +1381,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.electronAPI.showWakePopup();
                 }
             }
-        } catch(e) {}
+        } catch(e) {
+        } finally {
+            isCheckingWake = false;
+            scheduleWakeCheck(document.hidden ? 400 : 150);
+        }
     }
-    // High-responsiveness 150ms check
-    setInterval(checkWakeWord, 150);
+
+    function scheduleWakeCheck(delayMs) {
+        if (wakeCheckTimeout) clearTimeout(wakeCheckTimeout);
+        wakeCheckTimeout = setTimeout(checkWakeWord, delayMs);
+    }
+    scheduleWakeCheck(150);
+
+    // Refresh instantly when window is unhidden or restored
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            fetchSystemStats();
+            updateDesktopBillingStatus();
+            scheduleWakeCheck(50);
+        }
+    });
 
 
     // Event Listeners

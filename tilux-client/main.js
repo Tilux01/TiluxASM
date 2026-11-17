@@ -1,5 +1,10 @@
 const { app, BrowserWindow, ipcMain, Notification, nativeImage, Menu, shell, nativeTheme, Tray } = require('electron');
 
+// Lightweight & Performance Flags
+// Limits V8 heap to prevent runaway memory usage, disables expensive native occlusion checks on Windows
+app.commandLine.appendSwitch('js-flags', '--expose-gc --max-old-space-size=256');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+
 // Enforce dark mode for native window chrome (enables dark titlebar on macOS automatically without manual styling)
 nativeTheme.themeSource = 'dark';
 
@@ -13,6 +18,7 @@ let pyProc = null;
 let mainWindow = null;
 let tray = null;
 let isAppQuitting = false;
+let keepBackendOnQuit = false;
 
 function copyDirectory(src, dest) {
     if (!fs.existsSync(dest)) {
@@ -329,6 +335,13 @@ async function setupAndRunBackend() {
 }
 
 function exitPythonProcess() {
+    if (keepBackendOnQuit) {
+        if (pyProc) {
+            try { pyProc.unref(); } catch (_) {}
+            pyProc = null;
+        }
+        return;
+    }
     if (pyProc) {
         if (process.platform === 'win32' && pyProc.pid) {
             try {
@@ -409,6 +422,19 @@ function createWindow () {
         if (!isAppQuitting) {
             event.preventDefault();
             mainWindow.hide();
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                try {
+                    mainWindow.webContents.session.clearCache();
+                } catch (_) {}
+            }
+        }
+    });
+
+    mainWindow.on('hide', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            try {
+                mainWindow.webContents.session.clearCache();
+            } catch (_) {}
         }
     });
 
@@ -444,9 +470,20 @@ function createTray() {
         },
         { type: 'separator' },
         {
-            label: 'Quit Tilux',
+            label: 'Quit Tilux (Keep Server & Tunnel Active)',
             click: () => {
                 isAppQuitting = true;
+                keepBackendOnQuit = true;
+                exitPythonProcess();
+                app.quit();
+            }
+        },
+        {
+            label: 'Quit Everything (Stop Server & Tunnel)',
+            click: () => {
+                isAppQuitting = true;
+                keepBackendOnQuit = false;
+                exitPythonProcess();
                 app.quit();
             }
         }

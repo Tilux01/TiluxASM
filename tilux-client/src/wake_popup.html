@@ -195,8 +195,10 @@
             if (e.key === 'Escape') dismissWidget(e);
         });
 
+        let isUpdatingState = false;
         async function updateState() {
-            if (isDismissed) return;
+            if (isDismissed || isUpdatingState) return;
+            isUpdatingState = true;
             try {
                 const res = await fetch('http://127.0.0.1:8932/api/widget_state');
                 const data = await res.json();
@@ -222,8 +224,7 @@
                         subEl.innerText = data.reply_text || data.sub_text || "";
                         subEl.style.color = "#c084fc";
                     }
-                }
- else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
+                } else if (data.main_text === "Listening..." || data.main_text === "I'm listening...") {
                     if (mainEl && mainEl.innerText !== data.main_text) {
                         mainEl.innerText = data.main_text;
                     }
@@ -304,7 +305,10 @@
                         orb.style.animationDuration = "2.2s";
                     }
                 }
-            } catch(e) {}
+            } catch(e) {
+            } finally {
+                isUpdatingState = false;
+            }
         }
 
         setInterval(updateState, 100);
