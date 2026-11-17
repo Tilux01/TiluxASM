@@ -1440,6 +1440,103 @@ def get_firebase_config():
         "measurementId": "G-Q7Y0B754HX"
     })
 
+def _sanitize_otp_email_key(email: str) -> str:
+    import re
+    return re.sub(r'[^a-z0-9]', '_', (email or '').lower())
+
+@app.route("/api/auth/send_otp", methods=["POST"])
+def auth_send_otp():
+    try:
+        data = request.json or {}
+        email = data.get("email", "").strip().lower()
+        purpose = data.get("purpose", "signup")
+        if not email or "@" not in email:
+            return jsonify({"success": False, "error": "Invalid email address."}), 400
+
+        import random, time, json, urllib.request
+        otp = str(random.randint(100000, 999999))
+        email_key = _sanitize_otp_email_key(email)
+        now = int(time.time())
+        record = {
+            "code": otp,
+            "email": email,
+            "purpose": purpose,
+            "created_at": now,
+            "expires_at": now + 600
+        }
+        url = f"https://tiluxasm-default-rtdb.firebaseio.com/hosts/otp_{email_key}/settings.json"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(record).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                pass
+        except Exception as fb_err:
+            print(f"[OTP Firebase] Save notice: {fb_err}")
+
+        # Send via SMTP if configured in .env
+        smtp_user = (credentials.get_credential("EMAIL_USER") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_USER") or os.environ.get("SMTP_USER")
+        smtp_pass = (credentials.get_credential("EMAIL_PASS") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_PASS") or os.environ.get("SMTP_PASS")
+        if smtp_user and smtp_pass:
+            try:
+                import smtplib
+                from email.mime.text import MIMEText
+                action_str = "Account Registration" if purpose == "signup" else "Sign In"
+                msg = MIMEText(f"Your Tilux {action_str} verification code is: {otp}. It expires in 10 minutes.")
+                msg["Subject"] = f"{otp} is your Tilux verification code"
+                msg["From"] = f"Tilux AI <{smtp_user}>"
+                msg["To"] = email
+                with smtplib.SMTP("smtp.gmail.com", 587) as s_server:
+                    s_server.starttls()
+                    s_server.login(smtp_user, smtp_pass)
+                    s_server.send_message(msg)
+            except Exception as mail_e:
+                print(f"[OTP Mailer] SMTP notice: {mail_e}")
+
+        print(f"[Tilux OTP Server] Generated code for {email} ({purpose}): [{otp}]")
+        return jsonify({"success": True, "otp": otp, "email": email})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/auth/verify_otp", methods=["POST"])
+def auth_verify_otp():
+    try:
+        data = request.json or {}
+        email = data.get("email", "").strip().lower()
+        entered_code = str(data.get("code", "")).strip()
+        if not email or not entered_code:
+            return jsonify({"valid": False, "message": "Email and verification code are required."}), 400
+
+        import time, json, urllib.request
+        email_key = _sanitize_otp_email_key(email)
+        url = f"https://tiluxasm-default-rtdb.firebaseio.com/hosts/otp_{email_key}/settings.json"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            record_data = resp.read().decode("utf-8")
+
+        record = json.loads(record_data) if record_data and record_data != "null" else None
+        if not record or not record.get("code"):
+            return jsonify({"valid": False, "message": "No verification code found or expired. Please request a new one."})
+
+        now = int(time.time())
+        if record.get("expires_at") and now > record.get("expires_at"):
+            return jsonify({"valid": False, "message": "Verification code has expired. Please request a new code."})
+
+        if str(record.get("code")).strip() == entered_code:
+            try:
+                del_req = urllib.request.Request(url, method="DELETE")
+                urllib.request.urlopen(del_req, timeout=5)
+            except Exception:
+                pass
+            return jsonify({"valid": True})
+
+        return jsonify({"valid": False, "message": "Incorrect verification code. Please check and try again."})
+    except Exception as e:
+        return jsonify({"valid": False, "message": f"Verification error: {str(e)}"}), 500
+
 @app.route("/api/billing_status", methods=["GET"])
 def get_billing_status_api():
     return jsonify(usage_tracker.get_summary())

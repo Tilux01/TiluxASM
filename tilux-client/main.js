@@ -13,6 +13,7 @@ Menu.setApplicationMenu(null);
 const path = require('path');
 const fs = require('fs');
 const { spawn, exec } = require('child_process');
+const { sendOtpEmail, verifyOtpLocally } = require('./mailer');
 
 let pyProc = null;
 let mainWindow = null;
@@ -409,8 +410,22 @@ function createWindow () {
         });
     }
 
-    // Open any external web links in system browser, never inside the Electron window
+    // Allow Firebase Auth OAuth popups (Google, GitHub) inside Electron, open normal links externally
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url && (url.includes('firebaseapp.com/__/auth/handler') || url.includes('accounts.google.com') || url.includes('github.com/login'))) {
+            return {
+                action: 'allow',
+                overrideBrowserWindowOptions: {
+                    width: 520,
+                    height: 650,
+                    autoHideMenuBar: true,
+                    webPreferences: {
+                        nodeIntegration: false,
+                        contextIsolation: true
+                    }
+                }
+            };
+        }
         if (url && (url.startsWith('http:') || url.startsWith('https:'))) {
             shell.openExternal(url);
         }
@@ -737,5 +752,21 @@ ipcMain.on('restart-app-and-server', () => {
 
     app.relaunch();
     app.exit(0);
+});
+
+ipcMain.handle('send-otp-email', async (event, { to, purpose }) => {
+    try {
+        return await sendOtpEmail({ to, purpose });
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('verify-otp', async (event, { email, code }) => {
+    try {
+        return await verifyOtpLocally(email, code);
+    } catch (err) {
+        return { valid: false, message: err.message };
+    }
 });
 

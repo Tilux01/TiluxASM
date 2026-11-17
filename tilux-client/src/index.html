@@ -38,11 +38,11 @@
                         </div>
                         <div class="step-pill" id="step-pill-2">
                             <span class="step-num">2</span>
-                            <span class="step-label">Set up your workspace</span>
+                            <span class="step-label" id="step-label-2">Verify email code</span>
                         </div>
                         <div class="step-pill" id="step-pill-3">
                             <span class="step-num">3</span>
-                            <span class="step-label">Set up your profile</span>
+                            <span class="step-label">Set up your workspace</span>
                         </div>
                     </div>
                 </div>
@@ -50,71 +50,111 @@
 
             <!-- Right Side: Dark Form Area -->
             <div class="auth-right-form">
-                <div class="form-header">
-                    <h2 id="auth-card-title" class="form-title">Sign Up Account</h2>
-                    <p id="auth-card-sub" class="form-subtitle">Enter your personal data to create your account.</p>
-                </div>
+                <!-- Credentials View (Sign Up / Sign In) -->
+                <div id="auth-credentials-view">
+                    <div class="form-header">
+                        <h2 id="auth-card-title" class="form-title">Sign Up Account</h2>
+                        <p id="auth-card-sub" class="form-subtitle">Enter your personal data to create your account.</p>
+                    </div>
 
-                <div class="social-login-row">
-                    <button type="button" class="social-btn" onclick="showToast('Google login ready', 'info')">
-                        <i class="fa-brands fa-google" style="color: #ea4335;"></i> Google
-                    </button>
-                    <button type="button" class="social-btn" onclick="showToast('Github login ready', 'info')">
-                        <i class="fa-brands fa-github"></i> Github
-                    </button>
-                </div>
+                    <div class="social-login-row">
+                        <button type="button" class="social-btn" onclick="signInWithGoogle()">
+                            <i class="fa-brands fa-google" style="color: #ea4335;"></i> Google
+                        </button>
+                        <button type="button" class="social-btn" onclick="signInWithGithub()">
+                            <i class="fa-brands fa-github"></i> Github
+                        </button>
+                    </div>
 
-                <div class="form-divider">
-                    <span>Or</span>
-                </div>
+                    <div class="form-divider">
+                        <span>Or</span>
+                    </div>
 
-                <div id="auth-error-msg" class="auth-alert" style="display: none;">
-                    <i class="fa-solid fa-circle-exclamation"></i>
-                    <span id="auth-error-text">Invalid credentials.</span>
-                </div>
+                    <div id="auth-error-msg" class="auth-alert" style="display: none;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span id="auth-error-text">Invalid credentials.</span>
+                    </div>
 
-                <div class="form-inputs-stack">
-                    <div class="input-row-dual" id="row-dual-name">
+                    <div class="form-inputs-stack">
+                        <div class="input-row-dual" id="row-dual-name">
+                            <div class="form-field">
+                                <label class="field-label">First Name</label>
+                                <input id="pc-auth-fname" class="field-input" type="text" placeholder="eg. John"
+                                    autocomplete="off">
+                            </div>
+                            <div class="form-field">
+                                <label class="field-label">Last Name</label>
+                                <input id="pc-auth-lname" class="field-input" type="text" placeholder="eg. Francisco"
+                                    autocomplete="off">
+                            </div>
+                        </div>
+
                         <div class="form-field">
-                            <label class="field-label">First Name</label>
-                            <input id="pc-auth-fname" class="field-input" type="text" placeholder="eg. John"
+                            <label class="field-label">Email</label>
+                            <input id="pc-auth-email" class="field-input" type="email" placeholder="eg. johnfrans@gmail.com"
                                 autocomplete="off">
                         </div>
+
                         <div class="form-field">
-                            <label class="field-label">Last Name</label>
-                            <input id="pc-auth-lname" class="field-input" type="text" placeholder="eg. Francisco"
-                                autocomplete="off">
+                            <label class="field-label">Password</label>
+                            <div class="password-wrapper">
+                                <input id="pc-auth-password" class="field-input" type="password"
+                                    placeholder="Enter your password" autocomplete="off">
+                                <button type="button" class="pwd-eye-btn"
+                                    onclick="togglePasswordVisibility('pc-auth-password', this)">
+                                    <i class="fa-solid fa-eye-slash"></i>
+                                </button>
+                            </div>
+                            <span class="field-hint">Must be at least 6 characters.</span>
                         </div>
                     </div>
 
-                    <div class="form-field">
-                        <label class="field-label">Email</label>
-                        <input id="pc-auth-email" class="field-input" type="email" placeholder="eg. johnfrans@gmail.com"
-                            autocomplete="off">
-                    </div>
+                    <button id="pc-btn-submit" class="btn-primary-submit" onclick="submitAuthForm()">
+                        <span id="auth-btn-text">Sign Up</span>
+                    </button>
 
-                    <div class="form-field">
-                        <label class="field-label">Password</label>
-                        <div class="password-wrapper">
-                            <input id="pc-auth-password" class="field-input" type="password"
-                                placeholder="Enter your password" autocomplete="off">
-                            <button type="button" class="pwd-eye-btn"
-                                onclick="togglePasswordVisibility('pc-auth-password', this)">
-                                <i class="fa-solid fa-eye-slash"></i>
-                            </button>
-                        </div>
-                        <span class="field-hint">Must be at least 8 characters.</span>
-                    </div>
+                    <p class="form-footer-link" id="auth-footer-prompt">
+                        Already have an account? <a href="#" id="link-toggle-auth"
+                            onclick="switchAuthTab('login'); return false;">Log in</a>
+                    </p>
                 </div>
 
-                <button id="pc-btn-submit" class="btn-primary-submit" onclick="submitAuthForm()">
-                    <span id="auth-btn-text">Sign Up</span>
-                </button>
+                <!-- OTP Verification View -->
+                <div id="auth-otp-view" style="display: none;">
+                    <div class="form-header">
+                        <h2 class="form-title">Verify Your Email</h2>
+                        <p class="form-subtitle">Enter the 6-digit code sent to <strong id="otp-target-email" style="color: #c084fc;"></strong></p>
+                    </div>
 
-                <p class="form-footer-link" id="auth-footer-prompt">
-                    Already have an account? <a href="#" id="link-toggle-auth"
-                        onclick="switchAuthTab('login'); return false;">Log in</a>
-                </p>
+                    <div id="otp-error-msg" class="auth-alert" style="display: none;">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span id="otp-error-text">Incorrect verification code.</span>
+                    </div>
+
+                    <div class="otp-inputs-row" id="otp-boxes-container">
+                        <input type="text" inputmode="numeric" maxlength="1" class="otp-digit-box" id="otp-1" oninput="onOtpInput(1, this, event)" onkeydown="onOtpKeyDown(1, this, event)">
+                        <input type="text" inputmode="numeric" maxlength="1" class="otp-digit-box" id="otp-2" oninput="onOtpInput(2, this, event)" onkeydown="onOtpKeyDown(2, this, event)">
+                        <input type="text" inputmode="numeric" maxlength="1" class="otp-digit-box" id="otp-3" oninput="onOtpInput(3, this, event)" onkeydown="onOtpKeyDown(3, this, event)">
+                        <input type="text" inputmode="numeric" maxlength="1" class="otp-digit-box" id="otp-4" oninput="onOtpInput(4, this, event)" onkeydown="onOtpKeyDown(4, this, event)">
+                        <input type="text" inputmode="numeric" maxlength="1" class="otp-digit-box" id="otp-5" oninput="onOtpInput(5, this, event)" onkeydown="onOtpKeyDown(5, this, event)">
+                        <input type="text" inputmode="numeric" maxlength="1" class="otp-digit-box" id="otp-6" oninput="onOtpInput(6, this, event)" onkeydown="onOtpKeyDown(6, this, event)">
+                    </div>
+
+                    <button id="pc-btn-verify-otp" class="btn-primary-submit" onclick="submitOtpVerification()">
+                        <span id="otp-btn-text">Verify & Continue</span>
+                    </button>
+
+                    <div class="otp-resend-row">
+                        <span id="otp-timer-text">Resend code in <strong id="otp-countdown" style="color: #ffffff;">45</strong>s</span>
+                        <a href="#" id="otp-resend-link" class="otp-resend-link" style="display: none;" onclick="resendOtp(); return false;">Resend Code</a>
+                    </div>
+
+                    <div style="text-align: center;">
+                        <a href="#" class="otp-back-link" onclick="backToCredentials(); return false;">
+                            <i class="fa-solid fa-arrow-left"></i> Change email or credentials
+                        </a>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

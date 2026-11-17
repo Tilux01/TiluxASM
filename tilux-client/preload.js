@@ -5,5 +5,7 @@ window.electronAPI = {
     showWakePopup: () => ipcRenderer.send('show-wake-popup'),
     hideWakePopup: () => ipcRenderer.send('hide-wake-popup'),
     openChatWithPrompt: (prompt) => ipcRenderer.send('open-chat-with-prompt', prompt),
-    restartAppAndServer: () => ipcRenderer.send('restart-app-and-server')
+    restartAppAndServer: () => ipcRenderer.send('restart-app-and-server'),
+    sendOtpEmail: (to, purpose) => ipcRenderer.invoke('send-otp-email', { to, purpose }),
+    verifyOtp: (email, code) => ipcRenderer.invoke('verify-otp', { email, code })
 };

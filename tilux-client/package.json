@@ -73,7 +73,6 @@
       "shortcutName": "Tilux",
       "include": "build/installer.nsh"
     },
-
     "mac": {
       "target": "dmg",
       "icon": "build/icon.png",
@@ -91,5 +90,8 @@
   "devDependencies": {
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "nodemailer": "^10.6.0"
   }
 }

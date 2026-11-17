@@ -1475,7 +1475,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const desktopAuthOverlay = document.getElementById('desktop-auth-overlay');
     const authErrorMsg = document.getElementById('auth-error-msg');
     const authErrorText = document.getElementById('auth-error-text');
-    let currentAuthMode = 'login'; // 'login' or 'register'
+    const otpErrorMsg = document.getElementById('otp-error-msg');
+    const otpErrorText = document.getElementById('otp-error-text');
+    let currentAuthMode = 'register'; // Glitch Fix: Start with 'register' to match default HTML view
+    let pendingAuth = { mode: null, fname: '', lname: '', email: '', pass: '' };
+    let otpCountdownInterval = null;
     window.currentUser = null;
     
     // Initialize Firebase in Electron Client
@@ -1494,31 +1498,77 @@ document.addEventListener('DOMContentLoaded', () => {
       firebase.initializeApp(firebaseConfig);
     }
 
-    // Friendly Human Error Sanitizer
+    // Friendly Human Error Sanitizer (Never display raw Firebase codes or messages)
     function sanitizeFirebaseError(err) {
-      const code = err.code || '';
+      if (!err) return "An unexpected error occurred. Please try again.";
+      const code = (err.code || "").toLowerCase();
+      const msg = (err.message || "").toLowerCase();
+
       if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') {
-        return "Invalid email or password. Please check your details and try again.";
+        return "Invalid email or password. Please verify your details and try again.";
       }
       if (code === 'auth/email-already-in-use') {
-        return "An account with this email address already exists. Please sign in instead.";
+        return "An account with this email address already exists. Please log in instead.";
       }
       if (code === 'auth/weak-password') {
-        return "Password is too weak. Please use at least 6 characters.";
+        return "Password is too weak. Please choose a password with at least 6 characters.";
       }
       if (code === 'auth/invalid-email') {
         return "Please enter a valid email address.";
       }
       if (code === 'auth/too-many-requests') {
-        return "Too many failed attempts. Please wait a moment and try again.";
+        return "Too many attempts. For security reasons, please wait a minute before trying again.";
       }
-      if (code === 'auth/network-request-failed') {
-        return "Network connection error. Please check your internet connection.";
+      if (code === 'auth/network-request-failed' || msg.includes('network')) {
+        return "Network connection issue. Please check your internet connection.";
       }
-      let raw = err.message || "An authentication error occurred. Please try again.";
-      raw = raw.replace(/^Firebase:\s*/i, '').replace(/\s*\(auth\/[a-z-]+\)\.?$/i, '');
-      return raw || "Authentication error. Please try again.";
+      if (code === 'auth/popup-closed-by-user' || msg.includes('closed by user')) {
+        return "Sign-in was cancelled before completion.";
+      }
+      if (code === 'auth/popup-blocked') {
+        return "The login popup was blocked. Please allow popups and try again.";
+      }
+      if (code === 'auth/cancelled-popup-request') {
+        return "Sign-in attempt was interrupted. Please try again.";
+      }
+      if (code === 'auth/account-exists-with-different-credential') {
+        return "An account already exists with the same email using a different sign-in method.";
+      }
+      if (code === 'auth/operation-not-allowed') {
+        return "This sign-in method is currently disabled. Please sign in with email and password.";
+      }
+      
+      return "Authentication failed. Please verify your details and try again.";
     }
+
+    // Social Authentication: Google
+    window.signInWithGoogle = async function() {
+      if (authErrorMsg) authErrorMsg.style.display = 'none';
+      try {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        provider.addScope('profile');
+        provider.addScope('email');
+        const result = await firebase.auth().signInWithPopup(provider);
+        if (typeof showToast === 'function') showToast("Signed in with Google successfully!", "success");
+      } catch (err) {
+        if (authErrorText) authErrorText.textContent = sanitizeFirebaseError(err);
+        if (authErrorMsg) authErrorMsg.style.display = 'flex';
+      }
+    };
+
+    // Social Authentication: GitHub
+    window.signInWithGithub = async function() {
+      if (authErrorMsg) authErrorMsg.style.display = 'none';
+      try {
+        const provider = new firebase.auth.GithubAuthProvider();
+        provider.addScope('user:email');
+        const result = await firebase.auth().signInWithPopup(provider);
+        if (typeof showToast === 'function') showToast("Signed in with GitHub successfully!", "success");
+      } catch (err) {
+        if (authErrorText) authErrorText.textContent = sanitizeFirebaseError(err);
+        if (authErrorMsg) authErrorMsg.style.display = 'flex';
+      }
+    };
 
     window.showAuthOverlay = function() {
       if (desktopAuthOverlay) desktopAuthOverlay.style.display = 'flex';
@@ -1531,20 +1581,33 @@ document.addEventListener('DOMContentLoaded', () => {
     window.switchAuthTab = function(mode) {
       currentAuthMode = mode;
       if (authErrorMsg) authErrorMsg.style.display = 'none';
+      if (otpErrorMsg) otpErrorMsg.style.display = 'none';
       
+      // Ensure credentials view is visible and OTP view is hidden
+      const credsView = document.getElementById('auth-credentials-view');
+      const otpView = document.getElementById('auth-otp-view');
+      if (credsView) credsView.style.display = 'block';
+      if (otpView) otpView.style.display = 'none';
+
+      // Step indicators
+      const pill1 = document.getElementById('step-pill-1');
+      const pill2 = document.getElementById('step-pill-2');
+      if (pill1) pill1.classList.add('active');
+      if (pill2) pill2.classList.remove('active');
+
       const title = document.getElementById('auth-card-title');
       const sub = document.getElementById('auth-card-sub');
       const btnText = document.getElementById('auth-btn-text');
       const rowDual = document.getElementById('row-dual-name');
       const footerPrompt = document.getElementById('auth-footer-prompt');
-      const stepLabel = document.getElementById('step-label-1');
+      const stepLabel1 = document.getElementById('step-label-1');
 
       if (mode === 'login') {
         if (title) title.textContent = "Sign In Account";
         if (sub) sub.textContent = "Enter your credentials to access your account.";
         if (btnText) btnText.textContent = "Log In";
         if (rowDual) rowDual.style.display = 'none';
-        if (stepLabel) stepLabel.textContent = "Sign in to your account";
+        if (stepLabel1) stepLabel1.textContent = "Sign in to your account";
         if (footerPrompt) {
           footerPrompt.innerHTML = `Don't have an account? <a href="#" id="link-toggle-auth" onclick="switchAuthTab('register'); return false;">Sign up</a>`;
         }
@@ -1553,7 +1616,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sub) sub.textContent = "Enter your personal data to create your account.";
         if (btnText) btnText.textContent = "Sign Up";
         if (rowDual) rowDual.style.display = 'grid';
-        if (stepLabel) stepLabel.textContent = "Sign up your account";
+        if (stepLabel1) stepLabel1.textContent = "Sign up your account";
         if (footerPrompt) {
           footerPrompt.innerHTML = `Already have an account? <a href="#" id="link-toggle-auth" onclick="switchAuthTab('login'); return false;">Log in</a>`;
         }
@@ -1728,6 +1791,175 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     };
 
+    // --- OTP TIMER & BOX CONTROLS ---
+    function startOtpTimer(durationSeconds = 45) {
+      if (otpCountdownInterval) clearInterval(otpCountdownInterval);
+      let remaining = durationSeconds;
+      const countEl = document.getElementById('otp-countdown');
+      const timerText = document.getElementById('otp-timer-text');
+      const resendLink = document.getElementById('otp-resend-link');
+      if (timerText) timerText.style.display = '';
+      if (resendLink) resendLink.style.display = 'none';
+      if (countEl) countEl.textContent = remaining;
+
+      otpCountdownInterval = setInterval(() => {
+        remaining--;
+        if (countEl) countEl.textContent = remaining;
+        if (remaining <= 0) {
+          clearInterval(otpCountdownInterval);
+          if (timerText) timerText.style.display = 'none';
+          if (resendLink) resendLink.style.display = '';
+        }
+      }, 1000);
+    }
+
+    window.onOtpInput = function(index, el, event) {
+      // Handle paste of full 6-digit code into any box
+      if (el.value.length > 1) {
+        const digits = el.value.replace(/\D/g, '').slice(0, 6);
+        for (let i = 0; i < 6; i++) {
+          const box = document.getElementById(`otp-${i + 1}`);
+          if (box) box.value = digits[i] || '';
+        }
+        const lastIndex = Math.min(digits.length, 6);
+        const nextBox = document.getElementById(`otp-${lastIndex}`);
+        if (nextBox) nextBox.focus();
+        if (digits.length === 6) submitOtpVerification();
+        return;
+      }
+
+      el.value = el.value.replace(/\D/g, '');
+      if (el.value.length === 1 && index < 6) {
+        const next = document.getElementById(`otp-${index + 1}`);
+        if (next) next.focus();
+      }
+
+      // Auto-submit when all 6 digits are typed
+      let allFilled = true;
+      for (let i = 1; i <= 6; i++) {
+        const b = document.getElementById(`otp-${i}`);
+        if (!b || !b.value) { allFilled = false; break; }
+      }
+      if (allFilled) submitOtpVerification();
+    };
+
+    window.onOtpKeyDown = function(index, el, event) {
+      if (event.key === 'Backspace' && !el.value && index > 1) {
+        const prev = document.getElementById(`otp-${index - 1}`);
+        if (prev) {
+          prev.focus();
+          prev.value = '';
+        }
+      }
+    };
+
+    window.backToCredentials = function() {
+      if (otpCountdownInterval) clearInterval(otpCountdownInterval);
+      const credsView = document.getElementById('auth-credentials-view');
+      const otpView = document.getElementById('auth-otp-view');
+      if (credsView) credsView.style.display = 'block';
+      if (otpView) otpView.style.display = 'none';
+
+      const pill1 = document.getElementById('step-pill-1');
+      const pill2 = document.getElementById('step-pill-2');
+      if (pill1) pill1.classList.add('active');
+      if (pill2) pill2.classList.remove('active');
+      if (authErrorMsg) authErrorMsg.style.display = 'none';
+      if (otpErrorMsg) otpErrorMsg.style.display = 'none';
+    };
+
+    window.resendOtp = async function() {
+      if (!pendingAuth.email) return;
+      const resendLink = document.getElementById('otp-resend-link');
+      if (resendLink) resendLink.textContent = "Sending...";
+      try {
+        let res = null;
+        if (window.electronAPI && window.electronAPI.sendOtpEmail) {
+          res = await window.electronAPI.sendOtpEmail(pendingAuth.email, pendingAuth.mode);
+        } else {
+          const fetchRes = await fetch('http://127.0.0.1:8932/api/auth/send_otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: pendingAuth.email, purpose: pendingAuth.mode })
+          });
+          res = await fetchRes.json();
+        }
+        if (res && res.success) {
+          if (typeof showToast === 'function') showToast("New verification code sent to your email!", "info");
+          startOtpTimer(45);
+        } else {
+          if (otpErrorText) otpErrorText.textContent = res.error || "Failed to resend code. Please try again.";
+          if (otpErrorMsg) otpErrorMsg.style.display = 'flex';
+        }
+      } catch (err) {
+        if (otpErrorText) otpErrorText.textContent = sanitizeFirebaseError(err);
+        if (otpErrorMsg) otpErrorMsg.style.display = 'flex';
+      } finally {
+        if (resendLink) resendLink.textContent = "Resend Code";
+      }
+    };
+
+    window.submitOtpVerification = async function() {
+      if (otpErrorMsg) otpErrorMsg.style.display = 'none';
+      let code = '';
+      for (let i = 1; i <= 6; i++) {
+        const box = document.getElementById(`otp-${i}`);
+        code += box ? (box.value || '') : '';
+      }
+
+      if (code.length < 6) {
+        if (otpErrorText) otpErrorText.textContent = "Please enter the complete 6-digit verification code.";
+        if (otpErrorMsg) otpErrorMsg.style.display = 'flex';
+        return;
+      }
+
+      const btn = document.getElementById('pc-btn-verify-otp');
+      const btnText = document.getElementById('otp-btn-text');
+      if (btn) btn.disabled = true;
+      if (btnText) btnText.textContent = "Verifying...";
+
+      try {
+        let verifyRes = null;
+        if (window.electronAPI && window.electronAPI.verifyOtp) {
+          verifyRes = await window.electronAPI.verifyOtp(pendingAuth.email, code);
+        } else {
+          const vReq = await fetch('http://127.0.0.1:8932/api/auth/verify_otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: pendingAuth.email, code: code })
+          });
+          verifyRes = await vReq.json();
+        }
+
+        if (!verifyRes || !verifyRes.valid) {
+          if (otpErrorText) otpErrorText.textContent = verifyRes?.message || "Incorrect verification code. Please check your email and try again.";
+          if (otpErrorMsg) otpErrorMsg.style.display = 'flex';
+          return;
+        }
+
+        // OTP Validated! Complete Firebase Authentication
+        if (pendingAuth.mode === 'register') {
+          await firebase.auth().createUserWithEmailAndPassword(pendingAuth.email, pendingAuth.pass);
+          if (pendingAuth.fname && window.socket) {
+            window.socket.emit("save_owner_name", { first_name: pendingAuth.fname, last_name: pendingAuth.lname });
+          }
+          if (typeof showToast === 'function') showToast("Account created and email verified!", "success");
+        } else {
+          await firebase.auth().signInWithEmailAndPassword(pendingAuth.email, pendingAuth.pass);
+          if (typeof showToast === 'function') showToast("Signed in successfully!", "success");
+        }
+
+        if (otpCountdownInterval) clearInterval(otpCountdownInterval);
+        hideAuthOverlay();
+      } catch (err) {
+        if (otpErrorText) otpErrorText.textContent = sanitizeFirebaseError(err);
+        if (otpErrorMsg) otpErrorMsg.style.display = 'flex';
+      } finally {
+        if (btn) btn.disabled = false;
+        if (btnText) btnText.textContent = "Verify & Continue";
+      }
+    };
+
     window.submitAuthForm = async function() {
       const email = document.getElementById('pc-auth-email').value.trim();
       const pass = document.getElementById('pc-auth-password').value.trim();
@@ -1749,30 +1981,81 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       btnSubmit.disabled = true;
-      btnText.textContent = currentAuthMode === 'login' ? "Signing in..." : "Creating Account...";
+      btnText.textContent = "Sending Verification Code...";
 
       try {
         if (currentAuthMode === 'login') {
+          // Pre-verify credentials with Firebase so incorrect passwords fail immediately before sending OTP
           await firebase.auth().signInWithEmailAndPassword(email, pass);
+          await firebase.auth().signOut(); // Temporarily sign out until OTP confirmation
         } else {
-          await firebase.auth().createUserWithEmailAndPassword(email, pass);
-          
-          const fname = document.getElementById('pc-auth-fname') ? document.getElementById('pc-auth-fname').value.trim() : "";
-          const lname = document.getElementById('pc-auth-lname') ? document.getElementById('pc-auth-lname').value.trim() : "";
-          if (fname && window.socket) {
-             window.socket.emit("save_owner_name", { first_name: fname, last_name: lname });
+          // In Sign Up, check if the email is already registered
+          const methods = await firebase.auth().fetchSignInMethodsForEmail(email);
+          if (methods && methods.length > 0) {
+            throw { code: 'auth/email-already-in-use' };
           }
-          
-          if (typeof showToast === 'function') showToast("Account Created Successfully!", "success");
+        }
+
+        const fname = document.getElementById('pc-auth-fname') ? document.getElementById('pc-auth-fname').value.trim() : "";
+        const lname = document.getElementById('pc-auth-lname') ? document.getElementById('pc-auth-lname').value.trim() : "";
+        pendingAuth = { mode: currentAuthMode, fname, lname, email, pass };
+
+        // Send OTP via Nodemailer & Save to Firebase
+        let mailRes = null;
+        if (window.electronAPI && window.electronAPI.sendOtpEmail) {
+          mailRes = await window.electronAPI.sendOtpEmail(email, currentAuthMode);
+        } else {
+          const fetchRes = await fetch('http://127.0.0.1:8932/api/auth/send_otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, purpose: currentAuthMode })
+          });
+          mailRes = await fetchRes.json();
+        }
+
+        if (mailRes && mailRes.success) {
+          // Switch to OTP Verification View
+          const credsView = document.getElementById('auth-credentials-view');
+          const otpView = document.getElementById('auth-otp-view');
+          if (credsView) credsView.style.display = 'none';
+          if (otpView) otpView.style.display = 'block';
+
+          const targetEmail = document.getElementById('otp-target-email');
+          if (targetEmail) targetEmail.textContent = email;
+
+          // Clear previous digit boxes
+          for (let i = 1; i <= 6; i++) {
+            const b = document.getElementById(`otp-${i}`);
+            if (b) b.value = '';
+          }
+          const box1 = document.getElementById('otp-1');
+          if (box1) box1.focus();
+
+          // Step pill update: Step 2 active
+          const pill1 = document.getElementById('step-pill-1');
+          const pill2 = document.getElementById('step-pill-2');
+          if (pill1) pill1.classList.remove('active');
+          if (pill2) pill2.classList.add('active');
+
+          startOtpTimer(45);
+          if (typeof showToast === 'function') {
+            showToast(`Verification code sent to ${email}`, "info");
+          }
+        } else {
+          if (authErrorText) authErrorText.textContent = mailRes?.error || "Failed to dispatch verification code. Please check your connection.";
+          if (authErrorMsg) authErrorMsg.style.display = 'flex';
         }
       } catch (err) {
         if (authErrorText) authErrorText.textContent = sanitizeFirebaseError(err);
         if (authErrorMsg) authErrorMsg.style.display = 'flex';
       } finally {
         btnSubmit.disabled = false;
-        btnText.textContent = currentAuthMode === 'login' ? "Sign In" : "Create Account";
+        btnText.textContent = currentAuthMode === 'login' ? "Log In" : "Sign Up";
       }
     };
+
+    // Glitch Fix: Initialize Auth Tab explicitly to 'register' to guarantee 100% UI and JS sync
+    switchAuthTab('register');
 
     // Initialize Auth Session Check on App Startup
     checkDesktopAuthSession();
