@@ -854,15 +854,74 @@ def voice_upload():
     
     import tempfile
     import os
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+    import wave
+    import numpy as np
+    import shutil
+
+    suffix = os.path.splitext(audio_file.filename or "")[1].lower() or ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_audio:
         audio_file.save(temp_audio.name)
         temp_path = temp_audio.name
         
-    wav_path = temp_path.replace(".webm", ".wav")
+    wav_path = temp_path.replace(suffix, ".wav") if suffix != ".wav" else temp_path + ".res.wav"
     try:
-        import subprocess
-        subprocess.run(["ffmpeg", "-y", "-i", temp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
+        # Check if incoming file is already standard PCM WAV (no ffmpeg needed!)
+        is_wav = False
+        try:
+            with wave.open(temp_path, "rb") as test_wav:
+                is_wav = True
+        except Exception:
+            is_wav = False
+
+        audio_array = None
+        if is_wav:
+            with wave.open(temp_path, "rb") as w:
+                n_channels = w.getnchannels()
+                sampwidth = w.getsampwidth()
+                src_rate = w.getframerate()
+                frames = w.readframes(w.getnframes())
+                if sampwidth == 2:
+                    pcm = np.frombuffer(frames, dtype=np.int16)
+                    if n_channels > 1:
+                        pcm = pcm[::n_channels]  # Downmix to mono
+                    audio_array = pcm.astype(np.float32) / 32768.0
+                    if src_rate != 16000:
+                        target_len = int(round(len(audio_array) * 16000 / src_rate))
+                        audio_array = np.interp(np.linspace(0, len(audio_array) - 1, target_len), np.arange(len(audio_array)), audio_array).astype(np.float32)
+
+        # Fallback to ffmpeg conversion if not PCM WAV
+        if audio_array is None:
+            ffmpeg_cmd = shutil.which("ffmpeg")
+            if not ffmpeg_cmd:
+                candidates = [
+                    r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+                    r"C:\ffmpeg\bin\ffmpeg.exe",
+                    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
+                    "/opt/homebrew/bin/ffmpeg",
+                    "/usr/local/bin/ffmpeg",
+                    "/usr/bin/ffmpeg"
+                ]
+                for cand in candidates:
+                    if os.path.exists(cand):
+                        ffmpeg_cmd = cand
+                        break
+            if not ffmpeg_cmd:
+                ffmpeg_cmd = "ffmpeg"
+
+            import subprocess
+            subprocess.run([ffmpeg_cmd, "-y", "-i", temp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            with wave.open(wav_path, "rb") as w:
+                frames = w.readframes(w.getnframes())
+                audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Automatic digital AGC / normalization to boost quiet voice notes
+        if audio_array is not None and len(audio_array) > 0:
+            peak_val = float(np.max(np.abs(audio_array)))
+            if peak_val > 0.005 and peak_val < 0.40:
+                boost = min(3.5, 0.70 / peak_val)
+                audio_array = (audio_array * boost).astype(np.float32)
+
         try:
             from voice import get_whisper_model, transcribe_groq_whisper
         except ImportError:
@@ -872,13 +931,7 @@ def voice_upload():
                 def get_whisper_model(): return None
             def transcribe_groq_whisper(*args, **kwargs): return ""
         print("[Server] Transcribing uploaded voice file...")
-        import wave
-        import numpy as np
-        with wave.open(wav_path, "rb") as w:
-            frames = w.readframes(w.getnframes())
-            # Convert 16-bit PCM to float32
-            audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-            
+        
         # 1. Fast Path: Groq LPU Whisper STT (~150-250ms latency, whisper-large-v3-turbo)
         text = transcribe_groq_whisper(audio_array, sample_rate=16000)
         
@@ -899,8 +952,9 @@ def voice_upload():
                 
         print(f"[Server] Uploaded voice transcribed: '{text}'")
         
-        os.remove(temp_path)
-        if os.path.exists(wav_path):
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        if os.path.exists(wav_path) and wav_path != temp_path:
             os.remove(wav_path)
             
         if not text:
@@ -910,7 +964,7 @@ def voice_upload():
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
-        if os.path.exists(wav_path):
+        if os.path.exists(wav_path) and wav_path != temp_path:
             os.remove(wav_path)
         print(f"[Server] Voice upload error: {e}")
         return jsonify({"error": str(e)}), 500

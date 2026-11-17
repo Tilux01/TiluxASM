@@ -214,18 +214,19 @@ class WakeWordEngine:
                 def _stream_callback(indata, frames, time_info, status):
                     if status:
                         pass
-                    if not needs_downsample:
-                        self.q.put(bytes(indata))
-                    else:
-                        try:
-                            import numpy as np
-                            raw_pcm = np.frombuffer(indata, dtype=np.int16)
+                    try:
+                        import numpy as np
+                        raw_pcm = np.frombuffer(indata, dtype=np.int16)
+                        if needs_downsample:
                             target_len = int(round(len(raw_pcm) * 16000 / hw_rate))
                             indices = np.linspace(0, len(raw_pcm) - 1, target_len)
-                            resampled = np.interp(indices, np.arange(len(raw_pcm)), raw_pcm).astype(np.int16)
-                            self.q.put(resampled.tobytes())
-                        except Exception:
-                            self.q.put(bytes(indata))
+                            raw_pcm = np.interp(indices, np.arange(len(raw_pcm)), raw_pcm).astype(np.int16)
+                        
+                        # Apply gentle digital boost (1.6x) so distant/quiet microphones trigger easily
+                        boosted = np.clip(raw_pcm.astype(np.float32) * 1.6, -32768, 32767).astype(np.int16)
+                        self.q.put(boosted.tobytes())
+                    except Exception:
+                        self.q.put(bytes(indata))
 
                 mode_label = "16000Hz native" if not needs_downsample else f"{hw_rate}Hz -> 16000Hz (downsampled)"
                 with sd.RawInputStream(samplerate=hw_rate, blocksize=block_size, dtype='int16',

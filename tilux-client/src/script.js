@@ -904,7 +904,20 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             drawVisualizer();
             
-            // Setup Media Recorder
+            // Setup Direct PCM capture for zero-dependency WAV encoding
+            const pcmProcessor = audioContext.createScriptProcessor ? audioContext.createScriptProcessor(4096, 1, 1) : null;
+            const pcmBuffers = [];
+            if (pcmProcessor) {
+                pcmProcessor.onaudioprocess = (e) => {
+                    if (!isRecording) return;
+                    const input = e.inputBuffer.getChannelData(0);
+                    pcmBuffers.push(new Float32Array(input));
+                };
+                source.connect(pcmProcessor);
+                pcmProcessor.connect(audioContext.destination);
+            }
+
+            // Setup Media Recorder (fallback)
             mediaRecorder = new MediaRecorder(audioStream);
             audioChunks = [];
             
@@ -919,6 +932,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 micBtn.classList.remove('recording');
                 micBtn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
                 
+                if (pcmProcessor) {
+                    try { pcmProcessor.disconnect(); } catch (_) {}
+                }
+                const sampleRate = audioContext ? audioContext.sampleRate : 16000;
                 if (audioStream) audioStream.getTracks().forEach(track => track.stop());
                 if (audioContext) audioContext.close();
                 cancelAnimationFrame(animationId);
@@ -930,9 +947,66 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 inputField.placeholder = "Processing voice...";
                 
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                function createWavBlob(pcmArrays, srcRate) {
+                    let totalLen = 0;
+                    for (const arr of pcmArrays) totalLen += arr.length;
+                    if (totalLen === 0) return null;
+                    const fullPcm = new Float32Array(totalLen);
+                    let offset = 0;
+                    for (const arr of pcmArrays) {
+                        fullPcm.set(arr, offset);
+                        offset += arr.length;
+                    }
+                    
+                    let finalSamples = fullPcm;
+                    const targetRate = 16000;
+                    if (srcRate && srcRate !== targetRate) {
+                        const targetLen = Math.round(fullPcm.length * targetRate / srcRate);
+                        finalSamples = new Float32Array(targetLen);
+                        for (let i = 0; i < targetLen; i++) {
+                            const srcIdx = (i * (fullPcm.length - 1)) / (targetLen - 1);
+                            const low = Math.floor(srcIdx);
+                            const high = Math.min(low + 1, fullPcm.length - 1);
+                            const weight = srcIdx - low;
+                            finalSamples[i] = fullPcm[low] * (1 - weight) + fullPcm[high] * weight;
+                        }
+                    }
+                    
+                    const buffer = new ArrayBuffer(44 + finalSamples.length * 2);
+                    const view = new DataView(buffer);
+                    function writeStr(offset, str) {
+                        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+                    }
+                    writeStr(0, 'RIFF');
+                    view.setUint32(4, 36 + finalSamples.length * 2, true);
+                    writeStr(8, 'WAVE');
+                    writeStr(12, 'fmt ');
+                    view.setUint32(16, 16, true);
+                    view.setUint16(20, 1, true); // PCM format
+                    view.setUint16(22, 1, true); // Mono
+                    view.setUint32(24, targetRate, true);
+                    view.setUint32(28, targetRate * 2, true);
+                    view.setUint16(32, 2, true);
+                    view.setUint16(34, 16, true);
+                    writeStr(36, 'data');
+                    view.setUint32(40, finalSamples.length * 2, true);
+                    
+                    let pcmOffset = 44;
+                    for (let i = 0; i < finalSamples.length; i++, pcmOffset += 2) {
+                        const s = Math.max(-1, Math.min(1, finalSamples[i]));
+                        view.setInt16(pcmOffset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+                    }
+                    return new Blob([view], { type: 'audio/wav' });
+                }
+
+                const wavBlob = createWavBlob(pcmBuffers, sampleRate);
                 const formData = new FormData();
-                formData.append("audio", audioBlob, "voice.webm");
+                if (wavBlob && wavBlob.size > 2000) {
+                    formData.append("audio", wavBlob, "voice.wav");
+                } else {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    formData.append("audio", audioBlob, "voice.webm");
+                }
                 
                 try {
                     const response = await fetch('http://127.0.0.1:8932/api/voice_upload', {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, nativeImage, Menu, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, nativeImage, Menu, shell, nativeTheme, Tray } = require('electron');
 
 // Enforce dark mode for native window chrome (enables dark titlebar on macOS automatically without manual styling)
 nativeTheme.themeSource = 'dark';
@@ -11,6 +11,8 @@ const { spawn, exec } = require('child_process');
 
 let pyProc = null;
 let mainWindow = null;
+let tray = null;
+let isAppQuitting = false;
 
 function copyDirectory(src, dest) {
     if (!fs.existsSync(dest)) {
@@ -402,12 +404,87 @@ function createWindow () {
         return { action: 'deny' };
     });
     
+    // Intercept window close to minimize to tray instead of killing the background voice server
+    mainWindow.on('close', (event) => {
+        if (!isAppQuitting) {
+            event.preventDefault();
+            mainWindow.hide();
+        }
+    });
+
     // Set a blank background while loading
     mainWindow.loadFile(path.join(__dirname, 'src', 'loading.html'));
 }
 
+function createTray() {
+    if (tray && !tray.isDestroyed()) return;
+    const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+    const iconPath = path.join(__dirname, 'src', iconName);
+    const trayIcon = nativeImage.createFromPath(iconPath);
+    tray = new Tray(!trayIcon.isEmpty() ? trayIcon : iconPath);
+    tray.setToolTip('Tilux AI Assistant (Listening in background)');
+
+    const contextMenu = Menu.buildFromTemplate([
+        {
+            label: 'Open Tilux Workspace',
+            click: () => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                } else {
+                    createWindow();
+                }
+            }
+        },
+        {
+            label: 'Wake Voice Assistant',
+            click: () => {
+                createWakeWindow(true);
+            }
+        },
+        { type: 'separator' },
+        {
+            label: 'Quit Tilux',
+            click: () => {
+                isAppQuitting = true;
+                app.quit();
+            }
+        }
+    ]);
+
+    tray.setContextMenu(contextMenu);
+    tray.on('click', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isVisible()) {
+                mainWindow.focus();
+            } else {
+                mainWindow.show();
+            }
+        } else {
+            createWindow();
+        }
+    });
+    tray.on('double-click', () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+}
+
 app.whenReady().then(async () => {
     app.setAppUserModelId("com.tilux.asm");
+    createTray();
+
+    // Enable background autostart on system boot if packaged
+    if (app.isPackaged && typeof app.setLoginItemSettings === 'function') {
+        try {
+            app.setLoginItemSettings({
+                openAtLogin: true,
+                openAsHidden: true
+            });
+        } catch (_) {}
+    }
     
     // Proactively request macOS permissions (Microphone & Accessibility) on Mac
     if (process.platform === 'darwin') {
@@ -452,21 +529,24 @@ app.whenReady().then(async () => {
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
             createWindow();
+        } else if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            mainWindow.focus();
         }
     });
 });
 
 app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
+    // Keep app running in tray so background wake word listening stays active!
 });
 
 app.on('before-quit', () => {
+    isAppQuitting = true;
     exitPythonProcess();
 });
 
 app.on('will-quit', () => {
+    isAppQuitting = true;
     exitPythonProcess();
 });
 

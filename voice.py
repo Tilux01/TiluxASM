@@ -836,9 +836,9 @@ def listen(on_recording_done=None) -> str:
     
     # Dynamic Adaptive VAD: calibrate against actual room/mic noise floor
     ambient_samples = []
-    ambient_floor = 0.012
-    dynamic_speech_threshold = 0.020
-    dynamic_silence_threshold = 0.012
+    ambient_floor = 0.006
+    dynamic_speech_threshold = 0.010
+    dynamic_silence_threshold = 0.006
     is_calibrated = False
 
     # Low-Frequency Hum Filter: 160Hz 2nd-order Butterworth high-pass filter
@@ -892,8 +892,8 @@ def listen(on_recording_done=None) -> str:
                         ambient_samples.append(rms)
                         if len(ambient_samples) >= 3:
                             ambient_floor = float(np.median(ambient_samples))
-                            dynamic_speech_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
-                            dynamic_silence_threshold = max(0.012, (ambient_floor * 1.15) + 0.003)
+                            dynamic_speech_threshold = max(0.008, (ambient_floor * 1.40) + 0.004)
+                            dynamic_silence_threshold = max(0.005, (ambient_floor * 1.15) + 0.002)
                             is_calibrated = True
                     
                     # 2. Track speech detection
@@ -906,10 +906,10 @@ def listen(on_recording_done=None) -> str:
                             peak_speech_rms = rms
                         else:
                             # Adaptively track rising background noise (e.g. laptop fan/AC hum)
-                            if rms < 0.030:
+                            if rms < 0.025:
                                 ambient_floor = (0.90 * ambient_floor) + (0.10 * rms)
-                                dynamic_speech_threshold = max(0.020, (ambient_floor * 1.35) + 0.006)
-                                dynamic_silence_threshold = max(0.012, (ambient_floor * 1.15) + 0.003)
+                                dynamic_speech_threshold = max(0.008, (ambient_floor * 1.40) + 0.004)
+                                dynamic_silence_threshold = max(0.005, (ambient_floor * 1.15) + 0.002)
                     else:
                         peak_speech_rms = max(peak_speech_rms, rms)
                         # A chunk is considered active speech if it exceeds dynamic threshold or is within speech dynamic range
@@ -970,6 +970,12 @@ def listen(on_recording_done=None) -> str:
         if len(audio_np) < int(sample_rate * 0.20):
             print(f"[Voice] Audio segment too brief ({len(audio_np)/sample_rate:.2f}s). Ignoring noise blip.")
             return ""
+
+        # Apply automatic software AGC / normalization to boost quiet speech
+        peak_amp = float(np.max(np.abs(audio_np)))
+        if peak_amp > 0.005 and peak_amp < 0.40:
+            boost_factor = min(3.5, 0.70 / peak_amp)
+            audio_np = (audio_np * boost_factor).astype(np.float32)
 
         # Abort if user cancelled during recording
         import sys
