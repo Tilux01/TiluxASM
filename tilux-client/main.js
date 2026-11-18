@@ -198,7 +198,7 @@ async function setupAndRunBackend() {
                     
                     function runSpawn(cmd, args, cwdStr) {
                         return new Promise((res, rej) => {
-                            const child = spawn(cmd, args, { cwd: cwdStr, shell: true });
+                            const child = spawn(cmd, args, { cwd: cwdStr, shell: true, windowsHide: true });
                             child.stdout.on('data', data => {
                                 const lines = data.toString().split('\n').map(l => l.trim()).filter(l => l);
                                 if (mainWindow && lines.length > 0) {
@@ -351,7 +351,7 @@ function exitPythonProcess() {
         if (process.platform === 'win32' && pyProc.pid) {
             try {
                 const { execSync } = require('child_process');
-                execSync(`taskkill /F /T /PID ${pyProc.pid}`, { stdio: 'ignore' });
+                execSync(`taskkill /F /T /PID ${pyProc.pid}`, { stdio: 'ignore', windowsHide: true });
             } catch (_) {
                 try { pyProc.kill(); } catch (_) {}
             }
@@ -734,7 +734,8 @@ ipcMain.on('restart-app-and-server', () => {
         spawn(pyExe, [restartScript, '--restart-app', '--no-wait'], {
             cwd: backendCwd,
             detached: true,
-            stdio: 'ignore'
+            stdio: 'ignore',
+            windowsHide: true
         }).unref();
     } catch(e) {
         console.error('Error invoking restart script from Electron:', e);

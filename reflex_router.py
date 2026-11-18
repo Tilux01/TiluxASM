@@ -498,7 +498,19 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
             import platform, subprocess
             sys_name = platform.system()
             if sys_name == "Windows":
-                subprocess.Popen("rundll32.exe user32.dll,LockWorkStation", shell=True)
+                try:
+                    import ctypes
+                    ctypes.windll.user32.LockWorkStation()
+                except Exception:
+                    sup_kwargs = {"creationflags": 0x08000000}
+                    try:
+                        si = subprocess.STARTUPINFO()
+                        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                        si.wShowWindow = 0
+                        sup_kwargs["startupinfo"] = si
+                    except Exception:
+                        pass
+                    subprocess.Popen("rundll32.exe user32.dll,LockWorkStation", **sup_kwargs)
             elif sys_name == "Darwin":
                 subprocess.Popen("osascript -e 'tell application \"System Events\" to keystroke \"q\" using {control down, command down}' 2>/dev/null || pmset displaysleepnow", shell=True)
             else:

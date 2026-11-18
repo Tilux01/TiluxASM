@@ -92,6 +92,58 @@ class WindowsProtocol:
     VK_MEDIA_PLAY_PAUSE = 0xB3
     
     KEYEVENTF_KEYUP = 0x0002
+    CREATE_NO_WINDOW = 0x08000000
+
+    @classmethod
+    def _get_suppression_kwargs(cls) -> dict:
+        import platform
+        if platform.system() != "Windows":
+            return {}
+        kwargs = {"creationflags": cls.CREATE_NO_WINDOW}
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE
+            kwargs["startupinfo"] = si
+        except Exception:
+            pass
+        return kwargs
+
+    @classmethod
+    def _run_hidden_subprocess(cls, cmd, **kwargs):
+        """Runs a subprocess completely hidden with no command prompt popup on Windows."""
+        sup = cls._get_suppression_kwargs()
+        if "creationflags" in sup:
+            kwargs["creationflags"] = sup["creationflags"] | kwargs.get("creationflags", 0)
+        if "startupinfo" in sup:
+            kwargs["startupinfo"] = sup["startupinfo"]
+        return subprocess.run(cmd, **kwargs)
+
+    @classmethod
+    def _popen_hidden(cls, cmd, **kwargs):
+        """Spawns a process completely detached and invisible."""
+        sup = cls._get_suppression_kwargs()
+        if "creationflags" in sup:
+            kwargs["creationflags"] = sup["creationflags"] | kwargs.get("creationflags", 0)
+        if "startupinfo" in sup:
+            kwargs["startupinfo"] = sup["startupinfo"]
+        return subprocess.Popen(cmd, **kwargs)
+
+    @classmethod
+    def _shell_open(cls, target: str, args: str = "") -> bool:
+        """Opens a file, app, or URL using Windows native ShellExecute (zero cmd.exe window)."""
+        if hasattr(os, "startfile") and not args:
+            try:
+                os.startfile(target)
+                return True
+            except Exception:
+                pass
+        try:
+            import ctypes
+            res = ctypes.windll.shell32.ShellExecuteW(0, "open", target, args, 0, 1)
+            return res > 32
+        except Exception:
+            return False
 
     @classmethod
     def _send_vk_key(cls, vk_code: int) -> bool:
@@ -112,7 +164,7 @@ class WindowsProtocol:
         """Fallback COM SendKeys via PowerShell."""
         try:
             ps_cmd = f'(New-Object -ComObject wscript.shell).SendKeys([char]{char_code})'
-            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], 
+            cls._run_hidden_subprocess(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], 
                            capture_output=True, text=True, timeout=5)
             return True
         except Exception:
@@ -154,7 +206,7 @@ class WindowsProtocol:
         if not launched:
             # Fallback to PowerShell Start-Process
             ps_cmd = f'Start-Process "{target_uri}"'
-            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            cls._run_hidden_subprocess(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
                            capture_output=True, text=True, timeout=5)
 
         # If it fell back to a search query, send Enter after a brief pause so Spotify plays the top result
@@ -164,7 +216,7 @@ class WindowsProtocol:
             if not cls._send_vk_key(cls.VK_RETURN):
                 # Fallback to PowerShell SendKeys '{ENTER}'
                 try:
-                    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", 
+                    cls._run_hidden_subprocess(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", 
                                    "(New-Object -ComObject wscript.shell).SendKeys('{ENTER}')"], 
                                    capture_output=True, text=True, timeout=3)
                 except Exception:
@@ -239,18 +291,18 @@ class WindowsProtocol:
     @classmethod
     def open_url(cls, url: str) -> dict:
         """Opens URL in Windows default browser without spawning a visible cmd prompt."""
-        if hasattr(os, "startfile"):
-            try:
-                os.startfile(url)
-                return {"status": "success", "os": "Windows", "action": "open_url", "output": f"Opened {url} via startfile"}
-            except Exception:
-                pass
-        subprocess.Popen(f'cmd /c start "" "{url}"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"status": "success", "os": "Windows", "action": "open_url", "output": f"Opened {url} via Windows start"}
+        if cls._shell_open(url):
+            return {"status": "success", "os": "Windows", "action": "open_url", "output": f"Opened {url}"}
+        # Fallback to hidden PowerShell Start-Process
+        try:
+            cls._popen_hidden(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", f'Start-Process "{url}"'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        return {"status": "success", "os": "Windows", "action": "open_url", "output": f"Opened {url}"}
 
     @classmethod
     def open_app(cls, app_or_path: str, args: list = None) -> dict:
-        """Launches a Windows application detached with existence verification."""
+        """Launches a Windows application detached with existence verification and zero console window."""
         import shutil
         app_clean = app_or_path.lower().strip()
         cmd = app_clean
@@ -303,12 +355,14 @@ class WindowsProtocol:
                     "output": f"Application '{app_or_path}' not recognized or installed on Windows."
                 }
 
+        # Try native ShellExecute first (completely eliminates cmd.exe popping up)
+        args_str = " ".join(args) if args else ""
+        if cls._shell_open(cmd, args_str):
+            return {"status": "success", "os": "Windows", "action": "open_app", "output": f"Launched {app_or_path}"}
+
         full_cmd = [cmd] + (args or []) if args else cmd
         try:
-            if isinstance(full_cmd, list):
-                subprocess.Popen(full_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            else:
-                subprocess.Popen(f'cmd /c start "" "{full_cmd}"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            cls._popen_hidden(full_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return {"status": "success", "os": "Windows", "action": "open_app", "output": f"Launched {app_or_path}"}
         except Exception as e:
             return {"status": "error", "os": "Windows", "action": "open_app", "output": f"Failed to launch {app_or_path}: {e}"}
@@ -363,21 +417,21 @@ class WindowsProtocol:
 
     @classmethod
     def is_app_running(cls, app_name: str) -> bool:
-        """Checks if process is running via tasklist."""
+        """Checks if process is running via tasklist without popping up a console window."""
         proc = app_name if app_name.endswith(".exe") else f"{app_name}.exe"
-        res = subprocess.run(f'tasklist /FI "IMAGENAME eq {proc}" /NH', shell=True, capture_output=True, text=True)
+        res = cls._run_hidden_subprocess(f'tasklist /FI "IMAGENAME eq {proc}" /NH', shell=True, capture_output=True, text=True)
         return proc.lower() in res.stdout.lower()
 
     @classmethod
     def kill_app(cls, app_name: str) -> dict:
-        """Kills process forcefully via taskkill."""
+        """Kills process forcefully via taskkill without popping up a console window."""
         proc = app_name if app_name.endswith(".exe") else f"{app_name}.exe"
-        res = subprocess.run(f'taskkill /F /IM {proc} /T', shell=True, capture_output=True, text=True)
+        res = cls._run_hidden_subprocess(f'taskkill /F /IM {proc} /T', shell=True, capture_output=True, text=True)
         return {"status": "success", "os": "Windows", "action": "kill_app", "output": res.stdout.strip() or res.stderr.strip()}
 
     @classmethod
     def execute_command(cls, command: str) -> str:
-        """Executes a shell command on Windows with automatic Unix->PowerShell translations."""
+        """Executes a shell command on Windows completely hidden with zero console window popups."""
         clean_cmd = command.strip()
         # Translate common Unix commands if they slip through
         if clean_cmd.startswith("xdg-open ") or clean_cmd.startswith("open "):
@@ -391,15 +445,17 @@ class WindowsProtocol:
             running = cls.is_app_running(target)
             return f"Process '{target}' is {'running' if running else 'not running'}."
 
-        # Handle detached background execution or Unix nohup
+        # Handle detached background execution or Unix nohup (zero cmd.exe window)
         if clean_cmd.startswith("nohup "):
             clean_cmd = clean_cmd.replace("nohup ", "").split(">/dev/null")[0].split("2>&1")[0].replace("& disown", "").replace("&", "").strip()
-            subprocess.Popen(f'cmd /c start "" {clean_cmd}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if not cls._shell_open(clean_cmd):
+                cls._popen_hidden(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", f"Start-Process {clean_cmd}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return f"App '{clean_cmd}' launched successfully in the background on Windows."
 
         if clean_cmd.endswith("&"):
             actual_cmd = clean_cmd[:-1].strip()
-            subprocess.Popen(f'cmd /c start "" {actual_cmd}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if not cls._shell_open(actual_cmd):
+                cls._popen_hidden(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", f"Start-Process {actual_cmd}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return "App launched successfully in the background on Windows."
 
         # Unix pipeline translations for PowerShell
@@ -412,11 +468,13 @@ class WindowsProtocol:
             target = clean_cmd.split(None, 1)[1].strip()
             clean_cmd = f"New-Item -ItemType File -Force {target}"
 
-        # Execute through PowerShell for rich scripting support with ExecutionPolicy Bypass
+        # Execute through PowerShell for rich scripting support with ExecutionPolicy Bypass and complete window suppression
         try:
             ps_prefix = "$ConfirmPreference = 'None'; $ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Continue'; "
-            res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_prefix + clean_cmd],
-                                 capture_output=True, text=True, timeout=120)
+            res = cls._run_hidden_subprocess(
+                ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_prefix + clean_cmd],
+                capture_output=True, text=True, timeout=120
+            )
             output = res.stdout.strip() or res.stderr.strip() or "Command completed successfully."
             if len(output) > 40000:
                 output = output[:40000] + "\n\n... [OUTPUT TRUNCATED BY SYSTEM TO PREVENT TOKEN OVERFLOW]"

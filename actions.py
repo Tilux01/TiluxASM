@@ -219,16 +219,31 @@ def execute_python_code(code: str) -> str:
     temp_dir = tempfile.gettempdir()
     temp_file = os.path.join(temp_dir, f"tilux_auto_{uuid.uuid4().hex[:8]}.py")
 
-    monkey_patch = """import webbrowser, subprocess, platform
+    monkey_patch = """import webbrowser, subprocess, platform, os
 def _mock_open(url, *args, **kwargs):
     os_name = platform.system()
     if os_name == "Windows":
-        cmd = ['cmd', '/c', 'start', url]
+        if hasattr(os, "startfile"):
+            try:
+                os.startfile(url)
+                return True
+            except Exception:
+                pass
+        try:
+            import ctypes
+            if ctypes.windll.shell32.ShellExecuteW(0, "open", url, 0, 0, 1) > 32:
+                return True
+        except Exception:
+            pass
+        cmd = ['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', f'Start-Process "{url}"']
+        kw = {"creationflags": 0x08000000}
     elif os_name == "Darwin":
         cmd = ['open', url]
+        kw = {}
     else:
         cmd = ['xdg-open', url]
-    subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        kw = {}
+    subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
     return True
 webbrowser.open = _mock_open
 webbrowser.open_new = _mock_open
@@ -261,7 +276,18 @@ webbrowser.open_new_tab = _mock_open
         else:
             env["PYTHONPATH"] = base_dir
 
-        result = subprocess.run([python_bin, temp_file], capture_output=True, text=True, timeout=120, env=env)
+        sup_kwargs = {}
+        if platform.system() == "Windows":
+            sup_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+            try:
+                si = subprocess.STARTUPINFO()
+                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                si.wShowWindow = 0  # SW_HIDE
+                sup_kwargs["startupinfo"] = si
+            except Exception:
+                pass
+
+        result = subprocess.run([python_bin, temp_file], capture_output=True, text=True, timeout=120, env=env, **sup_kwargs)
         output = result.stdout + result.stderr
 
         output = re.sub(r'[A-Za-z0-9+/=]{2000,}', '[BASE64_MEDIA_DATA_REMOVED]', output)
@@ -810,7 +836,7 @@ def take_screenshot(output_path: str = None) -> str:
         # Native macOS silent screencapture
         subprocess.run(["screencapture", "-x", output_path], check=False)
     elif sys_name == "Windows":
-        # PowerShell System.Drawing fallback on Windows
+        # PowerShell System.Drawing fallback on Windows (completely hidden, zero console popup)
         ps_script = f"""
         Add-Type -AssemblyName System.Windows.Forms
         Add-Type -AssemblyName System.Drawing
@@ -822,7 +848,15 @@ def take_screenshot(output_path: str = None) -> str:
         $graphics.Dispose()
         $bmp.Dispose()
         """
-        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script], check=False)
+        sup_kwargs = {"creationflags": 0x08000000}
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0
+            sup_kwargs["startupinfo"] = si
+        except Exception:
+            pass
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script], check=False, **sup_kwargs)
     else:
         # Linux fallbacks
         for cmd in [
