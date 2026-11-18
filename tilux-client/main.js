@@ -414,22 +414,8 @@ function createWindow () {
         });
     }
 
-    // Allow Firebase Auth OAuth popups (Google, GitHub) inside Electron, open normal links externally
+    // Open external links in system browser
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        if (url && (url.includes('firebaseapp.com/__/auth/handler') || url.includes('accounts.google.com') || url.includes('github.com/login'))) {
-            return {
-                action: 'allow',
-                overrideBrowserWindowOptions: {
-                    width: 520,
-                    height: 650,
-                    autoHideMenuBar: true,
-                    webPreferences: {
-                        nodeIntegration: false,
-                        contextIsolation: true
-                    }
-                }
-            };
-        }
         if (url && (url.startsWith('http:') || url.startsWith('https:'))) {
             shell.openExternal(url);
         }

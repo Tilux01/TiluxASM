@@ -1522,36 +1522,6 @@ document.addEventListener('DOMContentLoaded', () => {
       
       return "Authentication failed. Please verify your details and try again.";
     }
-
-    // Social Authentication: Google
-    window.signInWithGoogle = async function() {
-      if (authErrorMsg) authErrorMsg.style.display = 'none';
-      try {
-        const provider = new firebase.auth.GoogleAuthProvider();
-        provider.addScope('profile');
-        provider.addScope('email');
-        const result = await firebase.auth().signInWithPopup(provider);
-        if (typeof showToast === 'function') showToast("Signed in with Google successfully!", "success");
-      } catch (err) {
-        if (authErrorText) authErrorText.textContent = sanitizeFirebaseError(err);
-        if (authErrorMsg) authErrorMsg.style.display = 'flex';
-      }
-    };
-
-    // Social Authentication: GitHub
-    window.signInWithGithub = async function() {
-      if (authErrorMsg) authErrorMsg.style.display = 'none';
-      try {
-        const provider = new firebase.auth.GithubAuthProvider();
-        provider.addScope('user:email');
-        const result = await firebase.auth().signInWithPopup(provider);
-        if (typeof showToast === 'function') showToast("Signed in with GitHub successfully!", "success");
-      } catch (err) {
-        if (authErrorText) authErrorText.textContent = sanitizeFirebaseError(err);
-        if (authErrorMsg) authErrorMsg.style.display = 'flex';
-      }
-    };
-
     window.showAuthOverlay = function() {
       if (desktopAuthOverlay) desktopAuthOverlay.style.display = 'flex';
     };
