@@ -707,9 +707,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('http://127.0.0.1:8932/api/settings', { cache: 'no-store' });
             const data = await res.json();
             
-            // Check setup complete logic
+            // Check setup complete logic - auto-complete bundled setup
             if (data.setup_complete === false) {
-                document.getElementById('setup-wizard').style.display = 'flex';
+                saveSettings({ setup_complete: true });
             }
             
             document.getElementById('tts-toggle').checked = data.tts_enabled;
@@ -790,28 +790,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.startInstallation = function() {
         // Save the tone first
         if (document.getElementById('ai-tone')) document.getElementById('ai-tone').value = selectedTone;
-        saveSettings();
+        saveSettings({ setup_complete: true });
         
-        nextWizardStep(3);
-        const term = document.getElementById('wizard-terminal');
-        term.innerHTML = "Starting universal dependency installer...\n";
-        
-        const source = new EventSource('http://127.0.0.1:8932/api/install');
-        source.onmessage = function(event) {
-            if (event.data === "[INSTALL_COMPLETE]") {
-                source.close();
-                nextWizardStep(4);
-            } else {
-                term.innerHTML += event.data + "\n";
-                term.scrollTop = term.scrollHeight; // Auto-scroll
-            }
-        };
-        source.onerror = function() {
-            term.innerHTML += "\n[Error connecting to installation stream. Backend might be restarting.]\n";
-            source.close();
-            // Just move to finish after a few seconds if error
-            setTimeout(() => nextWizardStep(4), 3000);
-        };
+        // In bundled distributions, all AI engines & models are already pre-packaged
+        nextWizardStep(4);
     };
 
     window.finishWizard = function() {

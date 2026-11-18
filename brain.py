@@ -645,6 +645,8 @@ class Brain:
         self.is_processing = False
         self.pending_heavy_task = None
         self._init_client()
+        self._warmup_thread = threading.Thread(target=self._background_warmup, daemon=True, name="TiluxWarmup")
+        self._warmup_thread.start()
         
     def _init_client(self):
         client_secret = credentials.get_credential("TILUX_CLIENT_SECRET") or os.getenv("TILUX_CLIENT_SECRET", "tilux_sec_994b7e8832a1df04")
@@ -684,6 +686,40 @@ class Brain:
         self.current_command = ""
         self.current_events = []
         self.on_event_update = None
+
+    def _background_warmup(self):
+        """Pre-warm modules, disk caches, and establish hot HTTP/TLS keep-alive connection pool."""
+        try:
+            # 1. Pre-warm persona & memory facts in memory
+            try:
+                get_persona(is_voice=False)
+            except Exception:
+                pass
+
+            # 2. Pre-import heavy libraries into memory so turn 1 experiences 0ms module import latency
+            try:
+                import PyPDF2
+                import docx
+                from PIL import Image as _PILImg
+                from usage_tracker import usage_tracker
+                from reflex_router import reflex_route
+                from memory import load_memory
+            except Exception:
+                pass
+
+            # 3. Pre-warm HTTP/TLS connection pool with proxy
+            if self.client and hasattr(self.client, "_client"):
+                proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app").rstrip("/")
+                base_url = f"{proxy_url}/api/v1" if not proxy_url.endswith("/api/v1") else proxy_url
+                target_url = f"{base_url}/chat/completions"
+                try:
+                    res = self.client._client.request("OPTIONS", target_url, timeout=4.0)
+                    if res.status_code in (200, 204):
+                        print(f"[Brain Warmup] Hot connection pool established with proxy ({res.status_code}).")
+                except Exception as ex:
+                    print(f"[Brain Warmup Notice] {ex}")
+        except Exception as e:
+            print(f"[Brain Warmup Error] {e}")
 
     def notify_event_update(self):
         if hasattr(self, 'on_event_update') and callable(self.on_event_update):

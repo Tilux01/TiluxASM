@@ -163,6 +163,10 @@ async function setupAndRunBackend() {
                     try { fs.copyFileSync(srcConf, destConf); } catch (_) {}
                 }
             }
+            // Ensure .setup_complete flag is written so setup wizard never prompts
+            try {
+                fs.writeFileSync(path.join(backendCwd, '.setup_complete'), 'bundled_complete');
+            } catch (_) {}
         } else {
             // Legacy / unbundled fallback
             const venvPath = path.join(backendCwd, 'venv');

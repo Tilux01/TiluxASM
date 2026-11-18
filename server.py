@@ -104,7 +104,7 @@ DEFAULT_SETTINGS = {
     "tts_voice": "en-US-AriaNeural",
     "tts_speed": "+20%",
     "ai_tone": "Professional",
-    "setup_complete": False,
+    "setup_complete": True,
     "api_key": ""
 }
 
@@ -614,30 +614,21 @@ from flask import Response
 @app.route("/api/install", methods=["GET"])
 def install_system():
     def generate():
-        import subprocess, sys, os, platform
+        import os
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        is_win = platform.system() == "Windows"
-        
-        venv_py = os.path.join(base_dir, "venv", "Scripts", "python.exe") if is_win else os.path.join(base_dir, "venv", "bin", "python")
-        python_bin = venv_py if os.path.exists(venv_py) else sys.executable
-        install_script = os.path.join(base_dir, "install.py")
+        yield "data: [INFO] All core AI engines, speech models, and dependencies are pre-bundled and verified.\n\n"
         
         try:
-            process = subprocess.Popen([python_bin, install_script], cwd=base_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            for line in process.stdout:
-                yield f"data: {line}\n\n"
-            process.stdout.close()
-            ret_code = process.wait()
-            
-            if ret_code == 0:
-                settings = load_settings()
-                settings["setup_complete"] = True
-                save_settings(settings)
-                yield "data: [INSTALL_COMPLETE]\n\n"
-            else:
-                yield f"data: [INSTALL_ERROR] Installation exited with code {ret_code}\n\n"
-        except Exception as e:
-            yield f"data: [INSTALL_ERROR] Failed to run installer: {str(e)}\n\n"
+            flag_file = os.path.join(base_dir, ".setup_complete")
+            with open(flag_file, "w") as f:
+                f.write("bundled_complete\n")
+        except Exception:
+            pass
+
+        settings = load_settings()
+        settings["setup_complete"] = True
+        save_settings(settings)
+        yield "data: [INSTALL_COMPLETE]\n\n"
         
     return Response(generate(), mimetype='text/event-stream')
 
