@@ -669,6 +669,19 @@ class Brain:
         if host_id:
             default_headers["X-Tilux-Host-Id"] = host_id
         user_id = os.getenv("TILUX_USER_ID", "")
+        if not user_id:
+            try:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                user_data_dir = os.environ.get("TILUX_USER_DATA_DIR") or base_dir
+                for cand in [os.path.join(user_data_dir, "user_personal.json"), os.path.join(base_dir, "user_personal.json")]:
+                    if os.path.exists(cand):
+                        with open(cand, "r") as pf:
+                            p_data = json.load(pf)
+                            user_id = p_data.get("uid", "")
+                            if user_id: break
+            except Exception:
+                pass
+        self.user_id = user_id
         if user_id:
             default_headers["X-Tilux-User-Id"] = user_id
         
@@ -686,6 +699,16 @@ class Brain:
         self.current_command = ""
         self.current_events = []
         self.on_event_update = None
+
+    def set_user_id(self, uid):
+        self.user_id = (uid or "").strip()
+        if self.client:
+            headers = getattr(self.client, "default_headers", None) or getattr(self.client, "_default_headers", None)
+            if headers is not None:
+                if self.user_id:
+                    headers["X-Tilux-User-Id"] = self.user_id
+                else:
+                    headers.pop("X-Tilux-User-Id", None)
 
     def _background_warmup(self):
         """Pre-warm modules, disk caches, and establish hot HTTP/TLS keep-alive connection pool."""

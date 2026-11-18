@@ -61,40 +61,51 @@ class CloudBridge:
         except Exception:
             return False
 
+    def set_active_user(self, user_id):
+        self.active_user = (user_id or "").strip()
+
     def sync_usage_and_billing(self, host_id, usage_data):
         if not usage_data or not isinstance(usage_data, dict):
             return False
         try:
-            if host_id:
+            # Sync user profile billing if logged in
+            if self.active_user and self.active_user != "default_user":
+                user_slug = self._sanitize_user_id(self.active_user)
+                data_user = json.dumps(usage_data).encode('utf-8')
+                for node in ["usage", "billing"]:
+                    try:
+                        u_ep = f"{self.endpoint_url}/users/{user_slug}/{node}.json"
+                        req_u = urllib.request.Request(u_ep, data=data_user, method='PATCH')
+                        req_u.add_header('Content-Type', 'application/json')
+                        urllib.request.urlopen(req_u, timeout=5)
+                    except Exception:
+                        pass
+            elif host_id:
                 endpoint = f"{self.endpoint_url}/hosts/{host_id}/usage.json"
                 data = json.dumps(usage_data).encode('utf-8')
                 req = urllib.request.Request(endpoint, data=data, method='PATCH')
                 req.add_header('Content-Type', 'application/json')
                 urllib.request.urlopen(req, timeout=5)
 
-            user_slug = self._sanitize_user_id(self.active_user)
-            user_endpoint = f"{self.endpoint_url}/users/{user_slug}/billing.json"
-            data_user = json.dumps(usage_data).encode('utf-8')
-            req_u = urllib.request.Request(user_endpoint, data=data_user, method='PATCH')
-            req_u.add_header('Content-Type', 'application/json')
-            urllib.request.urlopen(req_u, timeout=5)
             return True
         except Exception:
             return False
 
     def fetch_usage_and_billing(self, host_id):
         try:
-            user_slug = self._sanitize_user_id(self.active_user)
-            user_endpoint = f"{self.endpoint_url}/users/{user_slug}/billing.json"
-            req_u = urllib.request.Request(user_endpoint, method='GET')
-            try:
-                with urllib.request.urlopen(req_u, timeout=5) as resp:
-                    if resp.status == 200:
-                        data = json.loads(resp.read().decode('utf-8'))
-                        if data and isinstance(data, dict):
-                            return data
-            except Exception:
-                pass
+            if self.active_user and self.active_user != "default_user":
+                user_slug = self._sanitize_user_id(self.active_user)
+                for node in ["usage", "billing"]:
+                    u_ep = f"{self.endpoint_url}/users/{user_slug}/{node}.json"
+                    req_u = urllib.request.Request(u_ep, method='GET')
+                    try:
+                        with urllib.request.urlopen(req_u, timeout=5) as resp:
+                            if resp.status == 200:
+                                data = json.loads(resp.read().decode('utf-8'))
+                                if data and isinstance(data, dict):
+                                    return data
+                    except Exception:
+                        pass
                 
             if host_id:
                 endpoint = f"{self.endpoint_url}/hosts/{host_id}/usage.json"

@@ -22,10 +22,23 @@ class UsageTracker:
         self.lock = threading.Lock()
         self.socketio = None
         self.host_id = None
+        self.user_id = None
         # Minimal in-memory cache to prevent blocking UI excessively, 
         # but ALWAYS fetched fresh on critical operations.
         self._cached_stats = None
         self._last_fetch_time = 0
+
+    def set_user_id(self, user_id):
+        with self.lock:
+            self.user_id = (user_id or "").strip()
+            self._cached_stats = None
+            self._last_fetch_time = 0
+            try:
+                from cloud_bridge import cloud_bridge
+                cloud_bridge.set_active_user(self.user_id)
+            except Exception:
+                pass
+            return self._fetch_realtime_stats()
 
     def _default_stats(self):
         now = int(time.time())
@@ -45,7 +58,7 @@ class UsageTracker:
 
     def _fetch_realtime_stats(self):
         """Always pulls the absolute latest from Firebase."""
-        if not self.host_id:
+        if not self.host_id and not getattr(self, "user_id", None):
             return self._cached_stats or self._default_stats()
             
         try:

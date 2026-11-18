@@ -569,9 +569,15 @@ def restart_server_endpoint():
 def clear_user_session():
     try:
         if os.path.exists("user_personal.json"):
-            os.remove("user_personal.json")
+            try:
+                os.remove("user_personal.json")
+            except Exception:
+                pass
+        # Disconnect active user profile & credits (history and memory remain permanent on PC)
+        brain.set_user_id(None)
+        usage_tracker.set_user_id(None)
         save_settings(DEFAULT_SETTINGS)
-        return jsonify({"status": "success", "message": "User session erased"})
+        return jsonify({"status": "success", "message": "User profile disconnected"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -581,6 +587,10 @@ def sync_user_personal():
         data = request.json or {}
         with open("user_personal.json", "w") as f:
             json.dump(data, f, indent=4)
+        uid = data.get("uid")
+        if uid:
+            brain.set_user_id(uid)
+            usage_tracker.set_user_id(uid)
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
