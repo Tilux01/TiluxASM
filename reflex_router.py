@@ -316,42 +316,41 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         raw_target = app_match.group(1).strip()
         # Clean leading 'the ' or 'a ' if present: e.g. "open the chrome" -> "chrome"
         raw_target = re.sub(r'^(?:the|a|an)\s+', '', raw_target, flags=re.I).strip()
-        words = raw_target.lower().split()
-        
-        # Guard: App names are concise (<= 3 words) and must never match conversational pronouns, relative pointers, or file terms
-        CONVERSATIONAL_WORDS = {
-            "i", "you", "we", "me", "my", "your", "said", "say", "saying", "tell", "told", 
-            "ask", "asked", "here", "there", "is", "was", "are", "were", "what", "how", "why", 
-            "where", "who", "when", "can", "could", "should", "would", "please", "help", "work", 
-            "that", "this", "it", "them", "file", "folder", "project", "script", "doc", 
-            "document", "code", "workspace", "chat", "chatbox", "note", "window", "thing", 
-            "something", "anything", "everything"
-        }
-        
-        if len(words) <= 3 and not any(w in CONVERSATIONAL_WORDS for w in words) and not re.search(r'[;&|><`$\n]', raw_target):
-            target_lower = raw_target.lower()
-            
-            # 5a. Is it a well-known site shortcut or URL?
-            if target_lower in _SITE_SHORTCUTS or "." in target_lower or target_lower.startswith("http"):
-                if target_lower in _SITE_SHORTCUTS:
-                    target_url = _SITE_SHORTCUTS[target_lower]
-                elif target_lower.startswith("http://") or target_lower.startswith("https://"):
-                    target_url = target_lower
-                else:
-                    target_url = f"https://{target_lower}"
-                res = OSProtocols.open_url(target_url)
-                if res.get("status") == "success":
-                    pretty_name = target_lower.replace("https://", "").replace("http://", "").replace("www.", "").split(".")[0].title()
-                    return {
-                        "handled": True,
-                        "action": "open_url",
-                        "reply": f"Opening {pretty_name} for you right now. Pulling up your page in the browser.",
-                        "sub_text": res.get("output", f"Opened {target_url}")
-                    }
+        target_lower = raw_target.lower()
+        words = target_lower.split()
 
-            # 5b. Universal App Launch
-            raw_app = re.sub(r'\s+(?:app|application)$', '', target_lower).strip()
-            target_app = _APP_ALIASES.get(raw_app, raw_app)
+        # Tier 1 Anaphora Detection:
+        # If the target refers to past dialogue context, an active artifact, or relative reference,
+        # never attempt a speculative OS launch. Pass through immediately to the contextual LLM Brain!
+        ANAPHORIC_PRONOUNS = {"it", "them", "this", "that", "these", "those"}
+        if (len(words) == 1 and words[0] in ANAPHORIC_PRONOUNS) or any(target_lower.startswith(p + " ") for p in ["it", "them", "what", "how", "why"]):
+            return None
+
+        # Tier 2 Website / Web Shortcut Detection:
+        if target_lower in _SITE_SHORTCUTS or "." in target_lower or target_lower.startswith("http"):
+            if target_lower in _SITE_SHORTCUTS:
+                target_url = _SITE_SHORTCUTS[target_lower]
+            elif target_lower.startswith("http://") or target_lower.startswith("https://"):
+                target_url = target_lower
+            else:
+                target_url = f"https://{target_lower}"
+            res = OSProtocols.open_url(target_url)
+            if res.get("status") == "success":
+                pretty_name = target_lower.replace("https://", "").replace("http://", "").replace("www.", "").split(".")[0].title()
+                return {
+                    "handled": True,
+                    "action": "open_url",
+                    "reply": f"Opening {pretty_name} for you right now. Pulling up your page in the browser.",
+                    "sub_text": res.get("output", f"Opened {target_url}")
+                }
+
+        # Tier 3 Verified Application Registry Resolution:
+        raw_app = re.sub(r'\s+(?:app|application)$', '', target_lower).strip()
+        target_app = _APP_ALIASES.get(raw_app, raw_app)
+        
+        # Guard against conversational statements or malicious command injection characters
+        CONVERSATIONAL_WORDS = {"i", "you", "we", "me", "my", "your", "said", "say", "saying", "tell", "told", "ask", "asked", "here", "there", "is", "was", "are", "were", "what", "how", "why", "where", "who", "when", "can", "could", "should", "would", "please", "help"}
+        if len(words) <= 3 and not any(w in CONVERSATIONAL_WORDS for w in words) and not re.search(r'[;&|><`$\n]', raw_target):
             res = OSProtocols.open_app(target_app)
             # Only treat as handled if OS confirmed the app was successfully found and launched!
             if res.get("status") == "success":
@@ -363,7 +362,8 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
                     "sub_text": res.get("output", f"Launched {pretty_name}")
                 }
             else:
-                print(f"[Reflex] App '{target_app}' not found on system. Falling through to LLM.")
+                # Target is not an installed app: Yield cleanly to LLM Brain with zero side-effects
+                return None
 
     # 4. System Time / Date / Day
     if _RE_TIME.match(clean):

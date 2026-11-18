@@ -250,25 +250,58 @@ class WindowsProtocol:
 
     @classmethod
     def open_app(cls, app_or_path: str, args: list = None) -> dict:
-        """Launches a Windows application detached."""
+        """Launches a Windows application detached with existence verification."""
+        import shutil
         app_clean = app_or_path.lower().strip()
         cmd = app_clean
+        is_known = False
         if app_clean in ["calculator", "calc"]:
             cmd = "calc.exe"
+            is_known = True
         elif app_clean in ["notepad", "text", "notes"]:
             cmd = "notepad.exe"
+            is_known = True
         elif app_clean in ["explorer", "files", "file manager"]:
             cmd = "explorer.exe"
+            is_known = True
         elif app_clean in ["settings", "system settings"]:
             cmd = "ms-settings:"
+            is_known = True
         elif app_clean in ["taskmanager", "task manager", "taskmgr"]:
             cmd = "taskmgr.exe"
+            is_known = True
         elif app_clean in ["terminal", "powershell"]:
             cmd = "powershell.exe"
+            is_known = True
         elif app_clean in ["cmd", "command prompt"]:
             cmd = "cmd.exe"
+            is_known = True
         elif app_clean in ["code", "vscode", "vs code"]:
             cmd = "code"
+            is_known = True
+        elif app_clean in ["chrome", "google chrome"]:
+            cmd = "chrome.exe"
+            is_known = True
+        elif app_clean in ["edge", "msedge", "browser"]:
+            cmd = "msedge.exe"
+            is_known = True
+        elif app_clean in ["spotify"]:
+            cmd = "spotify.exe"
+            is_known = True
+
+        # If not in built-in list, verify that the binary or file exists on Windows
+        if not is_known:
+            if cmd.startswith("ms-") or os.path.exists(cmd):
+                is_known = True
+            elif shutil.which(cmd) or shutil.which(f"{cmd}.exe"):
+                is_known = True
+            else:
+                return {
+                    "status": "error",
+                    "os": "Windows",
+                    "action": "open_app",
+                    "output": f"Application '{app_or_path}' not recognized or installed on Windows."
+                }
 
         full_cmd = [cmd] + (args or []) if args else cmd
         try:
