@@ -906,15 +906,38 @@ def voice_upload():
                     if os.path.exists(cand):
                         ffmpeg_cmd = cand
                         break
-            if not ffmpeg_cmd:
-                ffmpeg_cmd = "ffmpeg"
 
-            import subprocess
-            subprocess.run([ffmpeg_cmd, "-y", "-i", temp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-            with wave.open(wav_path, "rb") as w:
-                frames = w.readframes(w.getnframes())
-                audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+            if ffmpeg_cmd and (shutil.which(ffmpeg_cmd) or os.path.exists(ffmpeg_cmd)):
+                try:
+                    import subprocess, sys
+                    sup = {}
+                    if sys.platform == "win32":
+                        sup["creationflags"] = 0x08000000
+                    subprocess.run([ffmpeg_cmd, "-y", "-i", temp_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **sup)
+                    if os.path.exists(wav_path):
+                        with wave.open(wav_path, "rb") as w:
+                            frames = w.readframes(w.getnframes())
+                            audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                except Exception as ff_e:
+                    print(f"[Server] ffmpeg conversion notice: {ff_e}")
+
+            # Fallback to soundfile if available
+            if audio_array is None:
+                try:
+                    import soundfile as sf
+                    data, sr = sf.read(temp_path)
+                    if data.ndim > 1:
+                        data = data.mean(axis=1)
+                    if sr != 16000:
+                        target_len = int(round(len(data) * 16000 / sr))
+                        audio_array = np.interp(np.linspace(0, len(data) - 1, target_len), np.arange(len(data)), data).astype(np.float32)
+                    else:
+                        audio_array = data.astype(np.float32)
+                except Exception:
+                    pass
+
+        if audio_array is None:
+            return jsonify({"error": "Audio could not be decoded. Please try recording again."}), 400
 
         # Automatic digital AGC / normalization to boost quiet voice notes
         if audio_array is not None and len(audio_array) > 0:
@@ -1478,9 +1501,11 @@ def auth_send_otp():
         except Exception as fb_err:
             print(f"[OTP Firebase] Save notice: {fb_err}")
 
-        # Send via SMTP if configured in .env
-        smtp_user = ((credentials.get_credential("EMAIL_USER") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_USER") or os.environ.get("SMTP_USER") or "").strip()
-        smtp_pass = ((credentials.get_credential("EMAIL_PASS") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_PASS") or os.environ.get("SMTP_PASS") or "").replace(" ", "").strip()
+        # Send via SMTP
+        DEFAULT_EMAIL_USER = "tilux001@gmail.com"
+        DEFAULT_EMAIL_PASS = "worntpimvltcaeyj"
+        smtp_user = ((credentials.get_credential("EMAIL_USER") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_USER") or os.environ.get("SMTP_USER") or DEFAULT_EMAIL_USER).strip()
+        smtp_pass = ((credentials.get_credential("EMAIL_PASS") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_PASS") or os.environ.get("SMTP_PASS") or DEFAULT_EMAIL_PASS).replace(" ", "").strip()
         if smtp_user and smtp_pass:
             try:
                 import smtplib

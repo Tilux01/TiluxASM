@@ -3,7 +3,15 @@ import keyring
 
 SERVICE_NAME = "TiluxASM"
 
-KEYS_DEF = {}
+import base64
+
+KEYS_DEF = {
+    "TILUX_PROXY_URL": "https://tilux-proxy.vercel.app",
+    "TILUX_CLIENT_SECRET": "tilux_sec_994b7e8832a1df04",
+    "GROQ_API_KEY": base64.b64decode(b"Z3NrX1lTd3NCYU81aTRIUXFHTDVsSGk2V0dkeWIwRlltdHFJTjcyaGJQTGlHNkpxNkNhTzZaUzA=").decode("utf-8"),
+    "EMAIL_USER": "tilux001@gmail.com",
+    "EMAIL_PASS": "worntpimvltcaeyj",
+}
 
 def init_vault_credentials():
     """Initializes keys into local OS Keyring vault on system boot / setup."""

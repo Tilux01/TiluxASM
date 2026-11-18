@@ -1000,10 +1000,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     return new Blob([view], { type: 'audio/wav' });
                 }
 
-                const wavBlob = createWavBlob(pcmBuffers, sampleRate);
+                let finalBlob = createWavBlob(pcmBuffers, sampleRate);
+                if (!finalBlob || finalBlob.size <= 2000) {
+                    if (audioChunks.length > 0) {
+                        try {
+                            const rawBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                            const arrayBuffer = await rawBlob.arrayBuffer();
+                            const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+                            const decoded = await decodeCtx.decodeAudioData(arrayBuffer);
+                            const channelData = decoded.getChannelData(0);
+                            finalBlob = createWavBlob([channelData], decoded.sampleRate);
+                            decodeCtx.close();
+                        } catch (decErr) {
+                            console.warn('[Voice] decodeAudioData fallback notice:', decErr);
+                        }
+                    }
+                }
+
                 const formData = new FormData();
-                if (wavBlob && wavBlob.size > 2000) {
-                    formData.append("audio", wavBlob, "voice.wav");
+                if (finalBlob && finalBlob.size > 1000) {
+                    formData.append("audio", finalBlob, "voice.wav");
                 } else {
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     formData.append("audio", audioBlob, "voice.webm");

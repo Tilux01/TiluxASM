@@ -3,13 +3,27 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
+const DEFAULT_EMAIL_USER = 'tilux001@gmail.com';
+const DEFAULT_EMAIL_PASS = 'worntpimvltcaeyj';
+
 // Helper to load .env manually if dotenv is not loaded
 function loadEnvCredentials() {
+    let electronUserData = '';
+    try {
+        const { app } = require('electron');
+        if (app && app.getPath) electronUserData = app.getPath('userData');
+    } catch (_) {}
+
     const envPaths = [
         path.join(__dirname, '..', '.env'),
         path.join(process.cwd(), '.env'),
-        path.join(__dirname, '.env')
-    ];
+        path.join(__dirname, '.env'),
+        process.resourcesPath ? path.join(process.resourcesPath, '.env') : '',
+        process.resourcesPath ? path.join(process.resourcesPath, 'backend', '.env') : '',
+        electronUserData ? path.join(electronUserData, '.env') : '',
+        electronUserData ? path.join(electronUserData, 'backend', '.env') : ''
+    ].filter(Boolean);
+
     for (const p of envPaths) {
         if (fs.existsSync(p)) {
             try {
@@ -76,8 +90,8 @@ function saveOtpToFirebase(email, otp, purpose) {
 
 async function getTransporter() {
     loadEnvCredentials();
-    const user = (process.env.EMAIL_USER || process.env.SMTP_USER || '').trim();
-    const rawPass = process.env.EMAIL_PASS || process.env.SMTP_PASS || '';
+    const user = (process.env.EMAIL_USER || process.env.SMTP_USER || DEFAULT_EMAIL_USER).trim();
+    const rawPass = process.env.EMAIL_PASS || process.env.SMTP_PASS || DEFAULT_EMAIL_PASS;
     const pass = rawPass.replace(/\s+/g, '').trim();
     const host = process.env.SMTP_HOST;
     const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
