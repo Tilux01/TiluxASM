@@ -228,12 +228,49 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         query = generic_play_match.group(1).strip()
         NON_SONG_WORDS = {"game", "video", "chess", "football", "soccer", "around", "dumb", "fool"}
         if query and not any(w in NON_SONG_WORDS for w in query.lower().split()):
-            res = OSProtocols.play_spotify(query)
+            # If query is purely generic (e.g. "music", "some music"), toggle playback directly
+            if query.lower() in ["music", "some music", "a song", "tracks", "playback"]:
+                res = OSProtocols.media_play_pause()
+                return {
+                    "handled": True,
+                    "action": "media_play_pause",
+                    "reply": "Resuming music playback for you. Sit back and enjoy.",
+                    "sub_text": res.get("output", "Toggled playback")
+                }
+
+            # Check user memory for preferred media platform
+            try:
+                from memory import load_memory
+                mems = " ".join(load_memory()).lower()
+            except Exception:
+                mems = ""
+
+            # Check if Spotify is running or explicitly favored in memory
+            spotify_running = False
+            try:
+                spotify_running = OSProtocols.is_app_running("spotify")
+            except Exception:
+                pass
+
+            if spotify_running or "spotify" in mems:
+                res = OSProtocols.play_spotify(query)
+                return {
+                    "handled": True,
+                    "action": "media_play_specific",
+                    "reply": f"Playing {query} on Spotify for you right away. Enjoy the tune.",
+                    "sub_text": res.get("output", f"Playing: {query}")
+                }
+
+            # Fallback to YouTube Music search without forcing Spotify installation
+            import urllib.parse
+            q_enc = urllib.parse.quote(query)
+            yt_url = f"https://music.youtube.com/search?q={q_enc}"
+            res = OSProtocols.open_url(yt_url)
             return {
                 "handled": True,
-                "action": "media_play_specific",
-                "reply": f"Playing {query} for you right away. Enjoy the tune.",
-                "sub_text": res.get("output", f"Playing: {query}")
+                "action": "media_play_youtube",
+                "reply": f"Opening {query} on YouTube Music for you right now.",
+                "sub_text": res.get("output", f"Opened {yt_url}")
             }
 
     # 3. Web Search Reflex (Google / Search for)
@@ -281,8 +318,15 @@ def reflex_route(prompt: str) -> Optional[Dict[str, Any]]:
         raw_target = re.sub(r'^(?:the|a|an)\s+', '', raw_target, flags=re.I).strip()
         words = raw_target.lower().split()
         
-        # Guard: App names are concise (<= 3 words) and should not contain conversational pronouns/filler
-        CONVERSATIONAL_WORDS = {"i", "you", "we", "me", "my", "your", "said", "say", "saying", "tell", "told", "ask", "asked", "here", "there", "is", "was", "are", "were", "what", "how", "why", "where", "who", "when", "can", "could", "should", "would", "please", "help", "work", "that", "this"}
+        # Guard: App names are concise (<= 3 words) and must never match conversational pronouns, relative pointers, or file terms
+        CONVERSATIONAL_WORDS = {
+            "i", "you", "we", "me", "my", "your", "said", "say", "saying", "tell", "told", 
+            "ask", "asked", "here", "there", "is", "was", "are", "were", "what", "how", "why", 
+            "where", "who", "when", "can", "could", "should", "would", "please", "help", "work", 
+            "that", "this", "it", "them", "file", "folder", "project", "script", "doc", 
+            "document", "code", "workspace", "chat", "chatbox", "note", "window", "thing", 
+            "something", "anything", "everything"
+        }
         
         if len(words) <= 3 and not any(w in CONVERSATIONAL_WORDS for w in words) and not re.search(r'[;&|><`$\n]', raw_target):
             target_lower = raw_target.lower()

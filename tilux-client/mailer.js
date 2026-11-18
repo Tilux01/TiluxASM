@@ -76,8 +76,9 @@ function saveOtpToFirebase(email, otp, purpose) {
 
 async function getTransporter() {
     loadEnvCredentials();
-    const user = process.env.EMAIL_USER || process.env.SMTP_USER;
-    const pass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
+    const user = (process.env.EMAIL_USER || process.env.SMTP_USER || '').trim();
+    const rawPass = process.env.EMAIL_PASS || process.env.SMTP_PASS || '';
+    const pass = rawPass.replace(/\s+/g, '').trim();
     const host = process.env.SMTP_HOST;
     const port = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
 
@@ -128,16 +129,20 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
 
     // 2. Prepare HTML Email template
     const actionLabel = purpose === 'login' ? 'Sign In' : 'Account Registration';
+    const iconPath = path.join(__dirname, 'src', 'icon.png');
+    const hasIcon = fs.existsSync(iconPath);
+
     const html = `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Your Tilux Verification Code</title>
+      <title>Your Tilux ASM Verification Code</title>
       <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #07060a; color: #ffffff; margin: 0; padding: 24px; }
         .card { max-width: 480px; margin: 0 auto; background: #0f0d15; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 36px 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
-        .logo { font-size: 20px; font-weight: 700; color: #c084fc; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+        .logo { font-size: 20px; font-weight: 700; color: #c084fc; margin-bottom: 24px; display: flex; align-items: center; }
+        .logo img { width: 34px; height: 34px; border-radius: 8px; margin-right: 12px; vertical-align: middle; }
         h2 { font-size: 22px; margin: 0 0 10px 0; color: #ffffff; }
         p { font-size: 14px; line-height: 1.6; color: #a1a1aa; margin: 0 0 24px 0; }
         .otp-box { background: rgba(168, 85, 247, 0.1); border: 1px solid #a855f7; border-radius: 12px; padding: 18px 24px; text-align: center; margin: 24px 0; }
@@ -147,9 +152,12 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
     </head>
     <body>
       <div class="card">
-        <div class="logo">✦ Tilux AI</div>
+        <div class="logo">
+          ${hasIcon ? '<img src="cid:tilux_app_icon" alt="Tilux ASM" />' : '<span style="color:#c084fc;font-size:24px;margin-right:8px;">✦</span>'}
+          <span>Tilux ASM</span>
+        </div>
         <h2>Verification Code</h2>
-        <p>You requested a one-time verification code for <strong>${actionLabel}</strong> on your Tilux desktop workspace.</p>
+        <p>You requested a one-time verification code for <strong>${actionLabel}</strong> on your Tilux ASM workspace.</p>
         <div class="otp-box">
           <div class="otp-code">${otp}</div>
         </div>
@@ -169,13 +177,21 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
         const transporter = await getTransporter();
         if (transporter) {
             const senderUser = process.env.EMAIL_USER || process.env.SMTP_USER || 'noreply@tilux.ai';
-            const info = await transporter.sendMail({
-                from: `"Tilux AI Security" <${senderUser}>`,
+            const mailOptions = {
+                from: `"Tilux ASM Security" <${senderUser}>`,
                 to: to,
-                subject: `${otp} is your Tilux verification code`,
-                text: `Your Tilux ${actionLabel} verification code is: ${otp}. It expires in 10 minutes.`,
-                html: html
-            });
+                subject: `${otp} is your Tilux ASM verification code`,
+                text: `Your Tilux ASM ${actionLabel} verification code is: ${otp}. It expires in 10 minutes.`,
+                html: html,
+                attachments: hasIcon ? [
+                    {
+                        filename: 'icon.png',
+                        path: iconPath,
+                        cid: 'tilux_app_icon'
+                    }
+                ] : []
+            };
+            const info = await transporter.sendMail(mailOptions);
             previewUrl = nodemailer.getTestMessageUrl(info);
             if (previewUrl) {
                 isTestAccount = true;

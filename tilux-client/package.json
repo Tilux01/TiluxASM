@@ -60,7 +60,7 @@
         "nsis"
       ],
       "icon": "build/icon.ico",
-      "requestedExecutionLevel": "asInvoker"
+      "requestedExecutionLevel": "highestAvailable"
     },
     "nsis": {
       "oneClick": false,

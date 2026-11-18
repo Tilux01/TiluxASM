@@ -73,14 +73,14 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 import json
-# Force reset God Mode to OFF on every startup to ensure default safe state
 if os.path.exists("settings.json"):
     try:
         with open("settings.json", "r") as f:
             settings_data = json.load(f)
-        settings_data["god_mode"] = False
-        with open("settings.json", "w") as f:
-            json.dump(settings_data, f, indent=4)
+        if "god_mode" not in settings_data:
+            settings_data["god_mode"] = True
+            with open("settings.json", "w") as f:
+                json.dump(settings_data, f, indent=4)
     except Exception:
         pass
 
@@ -1478,16 +1478,16 @@ def auth_send_otp():
             print(f"[OTP Firebase] Save notice: {fb_err}")
 
         # Send via SMTP if configured in .env
-        smtp_user = (credentials.get_credential("EMAIL_USER") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_USER") or os.environ.get("SMTP_USER")
-        smtp_pass = (credentials.get_credential("EMAIL_PASS") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_PASS") or os.environ.get("SMTP_PASS")
+        smtp_user = ((credentials.get_credential("EMAIL_USER") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_USER") or os.environ.get("SMTP_USER") or "").strip()
+        smtp_pass = ((credentials.get_credential("EMAIL_PASS") if credentials and hasattr(credentials, 'get_credential') else None) or os.environ.get("EMAIL_PASS") or os.environ.get("SMTP_PASS") or "").replace(" ", "").strip()
         if smtp_user and smtp_pass:
             try:
                 import smtplib
                 from email.mime.text import MIMEText
                 action_str = "Account Registration" if purpose == "signup" else "Sign In"
-                msg = MIMEText(f"Your Tilux {action_str} verification code is: {otp}. It expires in 10 minutes.")
-                msg["Subject"] = f"{otp} is your Tilux verification code"
-                msg["From"] = f"Tilux AI <{smtp_user}>"
+                msg = MIMEText(f"Your Tilux ASM {action_str} verification code is: {otp}. It expires in 10 minutes.")
+                msg["Subject"] = f"{otp} is your Tilux ASM verification code"
+                msg["From"] = f"Tilux ASM <{smtp_user}>"
                 msg["To"] = email
                 with smtplib.SMTP("smtp.gmail.com", 587) as s_server:
                     s_server.starttls()

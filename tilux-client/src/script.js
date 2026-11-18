@@ -1885,7 +1885,15 @@ document.addEventListener('DOMContentLoaded', () => {
           res = await fetchRes.json();
         }
         if (res && res.success) {
-          if (typeof showToast === 'function') showToast("New verification code sent to your email!", "info");
+          if (res.isTestAccount && res.otp) {
+            for (let i = 1; i <= 6; i++) {
+              const b = document.getElementById(`otp-${i}`);
+              if (b) b.value = res.otp[i - 1] || '';
+            }
+            if (typeof showToast === 'function') showToast(`[Dev Mode] New code ${res.otp} auto-filled`, "info");
+          } else if (typeof showToast === 'function') {
+            showToast("New verification code sent to your email!", "info");
+          }
           startOtpTimer(45);
         } else {
           if (otpErrorText) otpErrorText.textContent = res.error || "Failed to resend code. Please try again.";
@@ -2038,7 +2046,15 @@ document.addEventListener('DOMContentLoaded', () => {
           if (pill2) pill2.classList.add('active');
 
           startOtpTimer(45);
-          if (typeof showToast === 'function') {
+          if (mailRes.isTestAccount && mailRes.otp) {
+            for (let i = 1; i <= 6; i++) {
+              const b = document.getElementById(`otp-${i}`);
+              if (b) b.value = mailRes.otp[i - 1] || '';
+            }
+            if (typeof showToast === 'function') {
+              showToast(`[Dev Mode] Verification code ${mailRes.otp} auto-filled`, "info");
+            }
+          } else if (typeof showToast === 'function') {
             showToast(`Verification code sent to ${email}`, "info");
           }
         } else {

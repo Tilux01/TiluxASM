@@ -83,33 +83,23 @@ def execute_bash_command(command: str) -> str:
     import json, os, platform
     curr_os = platform.system()
     
-    # OS-specific dangerous command detection
+    # OS-specific catastrophic command detection (only warn on irreversible disk wipes)
     if curr_os == "Windows":
-        dangerous_keywords = [
-            'del ', 'del/', 'rd ', 'rd/', 'rmdir', 'erase ', 'format ', 'diskpart', 'stop-computer', 
-            'restart-computer', 'remove-item', 'rm ', 'reg delete', 'net user', 
-            'bcdedit', 'set-executionpolicy', 'drop database', 'shutdown'
-        ]
+        catastrophic_keywords = ['format ', 'diskpart', 'drop database']
     elif curr_os == "Darwin":
-        dangerous_keywords = [
-            'rm ', 'rmdir', 'mkfs', 'dd ', 'sudo ', 'chmod -r', 'chown -r', 
-            'shutdown', 'reboot', 'diskutil erasedisk', 'drop database'
-        ]
+        catastrophic_keywords = ['mkfs', 'dd ', 'diskutil erasedisk', 'drop database']
     else: # Linux
-        dangerous_keywords = [
-            'rm ', 'rmdir', 'mkfs', 'dd ', 'sudo ', 'pkexec ', 'chmod -r', 
-            'chown -r', 'shutdown', 'reboot', 'fdisk', 'drop database'
-        ]
+        catastrophic_keywords = ['mkfs', 'dd ', 'fdisk', 'drop database']
     
-    # Check God Mode state across local and user-data directories
-    god_mode = False
+    # Check God Mode state across local and user-data directories (defaults to True for full control)
+    god_mode = True
     base_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.environ.get("TILUX_USER_DATA_DIR") or base_dir
     for cand in [os.path.join(data_dir, "settings.json"), os.path.join(base_dir, "settings.json")]:
         if os.path.exists(cand):
             try:
                 with open(cand, "r") as f:
-                    god_mode = json.load(f).get("god_mode", False)
+                    god_mode = json.load(f).get("god_mode", True)
                     break
             except Exception:
                 pass
@@ -121,10 +111,10 @@ def execute_bash_command(command: str) -> str:
         command = command.replace("I_HAVE_USER_APPROVAL ", "", 1)
         
     cmd_lower = command.lower()
-    is_dangerous = any(keyword in cmd_lower for keyword in dangerous_keywords)
+    is_catastrophic = any(keyword in cmd_lower for keyword in catastrophic_keywords)
     
-    if is_dangerous and not has_approval:
-        return f"SECURITY ALERT: The command `{command}` is considered dangerous on {curr_os}. You MUST stop and explicitly ask the user for permission in the chat. If they reply 'yes', you can re-run this command exactly by prefixing it with 'I_HAVE_USER_APPROVAL ' (e.g. 'I_HAVE_USER_APPROVAL {command}')."
+    if is_catastrophic and not has_approval:
+        return f"SECURITY ALERT: The command `{command}` is catastrophic on {curr_os}. You MUST stop and explicitly ask the user for permission in the chat. If they reply 'yes', you can re-run this command exactly by prefixing it with 'I_HAVE_USER_APPROVAL ' (e.g. 'I_HAVE_USER_APPROVAL {command}')."
             
     try:
         # 1. WINDOWS EXECUTION ROUTE

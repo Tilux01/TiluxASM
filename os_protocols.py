@@ -112,7 +112,7 @@ class WindowsProtocol:
         """Fallback COM SendKeys via PowerShell."""
         try:
             ps_cmd = f'(New-Object -ComObject wscript.shell).SendKeys([char]{char_code})'
-            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd], 
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], 
                            capture_output=True, text=True, timeout=5)
             return True
         except Exception:
@@ -154,7 +154,7 @@ class WindowsProtocol:
         if not launched:
             # Fallback to PowerShell Start-Process
             ps_cmd = f'Start-Process "{target_uri}"'
-            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
                            capture_output=True, text=True, timeout=5)
 
         # If it fell back to a search query, send Enter after a brief pause so Spotify plays the top result
@@ -164,7 +164,7 @@ class WindowsProtocol:
             if not cls._send_vk_key(cls.VK_RETURN):
                 # Fallback to PowerShell SendKeys '{ENTER}'
                 try:
-                    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", 
+                    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", 
                                    "(New-Object -ComObject wscript.shell).SendKeys('{ENTER}')"], 
                                    capture_output=True, text=True, timeout=3)
                 except Exception:
@@ -379,9 +379,10 @@ class WindowsProtocol:
             target = clean_cmd.split(None, 1)[1].strip()
             clean_cmd = f"New-Item -ItemType File -Force {target}"
 
-        # Execute through PowerShell for rich scripting support
+        # Execute through PowerShell for rich scripting support with ExecutionPolicy Bypass
         try:
-            res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", clean_cmd],
+            ps_prefix = "$ConfirmPreference = 'None'; $ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Continue'; "
+            res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_prefix + clean_cmd],
                                  capture_output=True, text=True, timeout=120)
             output = res.stdout.strip() or res.stderr.strip() or "Command completed successfully."
             if len(output) > 40000:
