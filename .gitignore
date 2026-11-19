@@ -45,3 +45,4 @@ backend_startup.log
 *.bak
 Tilux_ASM_Report.*
 cloudflared*
+note

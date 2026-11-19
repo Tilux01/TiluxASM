@@ -134,52 +134,134 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
         throw new Error('Valid recipient email address is required.');
     }
 
-    // Generate 6-digit numeric OTP
+    // 1. Try Proxy Server First (remote serverless Nodemailer delivery)
+    const proxyUrl = (process.env.TILUX_PROXY_URL || 'https://tilux-proxy.vercel.app').replace(/\/$/, '');
+    try {
+        const resp = await fetch(`${proxyUrl}/api/v1/auth/send_otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: to, purpose: purpose })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+            console.log(`[Tilux Mailer] Dispatched OTP to ${to} via tilux-proxy successfully.`);
+            return {
+                success: true,
+                email: to,
+                otp: data.otp || '******',
+                via: 'proxy'
+            };
+        }
+        console.warn('[Tilux Mailer] Proxy notice, falling back to local SMTP:', data.error);
+    } catch (proxyErr) {
+        console.warn('[Tilux Mailer] Proxy unreachable, falling back to local SMTP:', proxyErr.message);
+    }
+
+    // 2. Local Fallback: Generate 6-digit numeric OTP and save to Firebase
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // 1. Save to Firebase Realtime Database
     await saveOtpToFirebase(to, otp, purpose);
-    console.log(`[Tilux OTP] Generated code for ${to} (${purpose}): [${otp}]`);
+    console.log(`[Tilux OTP] Generated code locally for ${to} (${purpose}): [${otp}]`);
 
-    // 2. Prepare HTML Email template
-    const actionLabel = purpose === 'login' ? 'Sign In' : 'Account Registration';
-    const iconPath = path.join(__dirname, 'src', 'icon.png');
-    const hasIcon = fs.existsSync(iconPath);
+    // 2. Prepare HTML Email template matching Desktop Auth Modal
+    const actionLabel = purpose === 'login' ? 'Sign In' : (purpose === 'reset' ? 'Password Reset' : 'Account Registration');
+    const digits = otp.split('');
+    const digitCells = digits.map(d => `<td align="center" width="46" height="52" style="background: #141122; border: 1px solid rgba(168, 85, 247, 0.45); border-radius: 12px; font-size: 28px; font-weight: 800; color: #ffffff; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.20);">${d}</td>`).join('');
 
     const html = `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Your Tilux ASM Verification Code</title>
-      <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #07060a; color: #ffffff; margin: 0; padding: 24px; }
-        .card { max-width: 480px; margin: 0 auto; background: #0f0d15; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 36px 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
-        .logo { font-size: 20px; font-weight: 700; color: #c084fc; margin-bottom: 24px; display: flex; align-items: center; }
-        .logo img { width: 34px; height: 34px; border-radius: 8px; margin-right: 12px; vertical-align: middle; }
-        h2 { font-size: 22px; margin: 0 0 10px 0; color: #ffffff; }
-        p { font-size: 14px; line-height: 1.6; color: #a1a1aa; margin: 0 0 24px 0; }
-        .otp-box { background: rgba(168, 85, 247, 0.1); border: 1px solid #a855f7; border-radius: 12px; padding: 18px 24px; text-align: center; margin: 24px 0; }
-        .otp-code { font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #ffffff; font-family: monospace; }
-        .footer { font-size: 12px; color: #71717a; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 18px; margin-top: 24px; }
-      </style>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Your Tilux Verification Code</title>
     </head>
-    <body>
-      <div class="card">
-        <div class="logo">
-          ${hasIcon ? '<img src="cid:tilux_app_icon" alt="Tilux ASM" />' : '<span style="color:#c084fc;font-size:24px;margin-right:8px;">✦</span>'}
-          <span>Tilux ASM</span>
-        </div>
-        <h2>Verification Code</h2>
-        <p>You requested a one-time verification code for <strong>${actionLabel}</strong> on your Tilux ASM workspace.</p>
-        <div class="otp-box">
-          <div class="otp-code">${otp}</div>
-        </div>
-        <p>This code will expire in <strong>10 minutes</strong>. If you did not make this request, you can safely ignore this email.</p>
-        <div class="footer">
-          &copy; ${new Date().getFullYear()} Tilux ASM. All rights reserved.
-        </div>
-      </div>
+    <body style="margin: 0; padding: 32px 12px; background-color: #07060a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', Helvetica, Arial, sans-serif; color: #ffffff;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #07060a;">
+        <tr>
+          <td align="center">
+            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 520px; background-color: #0c0a12; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 28px; overflow: hidden; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.9), 0 0 50px rgba(124, 58, 237, 0.18);">
+              <!-- Hero Banner Matching Desktop Auth Modal -->
+              <tr>
+                <td style="background: linear-gradient(145deg, #a855f7 0%, #7c3aed 40%, #3b0764 75%, #0f0728 100%); padding: 36px 30px; border-radius: 24px; margin: 8px;">
+                  <div style="font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: -0.3px; margin-bottom: 22px;">
+                    <span style="display: inline-block; background: rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 4px 8px; margin-right: 6px;">⚡</span> Tilux
+                  </div>
+                  <h1 style="margin: 0 0 8px 0; font-size: 26px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">Get Started with Us</h1>
+                  <p style="margin: 0 0 24px 0; font-size: 13px; color: rgba(255, 255, 255, 0.80); line-height: 1.5; max-width: 380px;">
+                    Complete these easy steps to register your desktop AI account.
+                  </p>
+                  <!-- Auth Step Pills -->
+                  <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td style="padding-bottom: 8px;">
+                        <div style="background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.75);">
+                          <span style="display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, 0.20); color: #ffffff; text-align: center; line-height: 18px; font-size: 10px; font-weight: 700; margin-right: 8px;">1</span>
+                          Sign up your account
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding-bottom: 8px;">
+                        <div style="background: #ffffff; border: 1px solid #ffffff; border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 700; color: #000000; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);">
+                          <span style="display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: #000000; color: #ffffff; text-align: center; line-height: 18px; font-size: 10px; font-weight: 700; margin-right: 8px;">2</span>
+                          Verify email code &nbsp;<span style="background: #a855f7; color: #ffffff; font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 600;">CURRENT</span>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div style="background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 999px; padding: 8px 14px; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.75);">
+                          <span style="display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, 0.20); color: #ffffff; text-align: center; line-height: 18px; font-size: 10px; font-weight: 700; margin-right: 8px;">3</span>
+                          Set up your workspace
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Form Body Area -->
+              <tr>
+                <td style="padding: 34px 30px;">
+                  <h2 style="margin: 0 0 6px 0; font-size: 20px; font-weight: 700; color: #ffffff; letter-spacing: -0.3px;">Verification Code</h2>
+                  <p style="margin: 0 0 22px 0; font-size: 14px; color: rgba(255, 255, 255, 0.65); line-height: 1.5;">
+                    Enter this 6-digit one-time code to complete your security verification for <strong style="color: #ffffff;">${actionLabel}</strong>:
+                  </p>
+
+                  <!-- 6 Capsules Table -->
+                  <table align="center" border="0" cellspacing="6" cellpadding="0" style="margin: 20px auto;">
+                    <tr>
+                      ${digitCells}
+                    </tr>
+                  </table>
+
+                  <!-- Pill Badge Timer -->
+                  <table align="center" border="0" cellspacing="0" cellpadding="0" style="margin: 18px auto 24px auto;">
+                    <tr>
+                      <td align="center">
+                        <div style="display: inline-block; background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 600; color: #c084fc;">
+                          ⏱ Code expires in 10 minutes
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <p style="margin: 0 0 16px 0; font-size: 12px; color: rgba(255, 255, 255, 0.45); line-height: 1.5; text-align: center;">
+                    If you did not request this verification code, please ignore this email or check your workspace security settings.
+                  </p>
+
+                  <div style="height: 1px; background: rgba(255, 255, 255, 0.08); margin: 24px 0 18px 0;"></div>
+
+                  <div style="font-size: 11px; color: rgba(255, 255, 255, 0.35); text-align: center; line-height: 1.6;">
+                    Tilux ASM &bull; The Autonomous Desktop AI Assistant<br>
+                    Protected with 256-bit encryption &bull; Real-time AI Automation
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
     </body>
     </html>
     `;
@@ -225,7 +307,20 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
     };
 }
 
-function verifyOtpLocally(email, enteredCode) {
+async function verifyOtpLocally(email, enteredCode) {
+    const proxyUrl = (process.env.TILUX_PROXY_URL || 'https://tilux-proxy.vercel.app').replace(/\/$/, '');
+    try {
+        const resp = await fetch(`${proxyUrl}/api/v1/auth/verify_otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, code: enteredCode })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.valid !== undefined) {
+            return data;
+        }
+    } catch (_) {}
+
     return new Promise((resolve) => {
         try {
             const emailKey = sanitizeEmailKey(email);

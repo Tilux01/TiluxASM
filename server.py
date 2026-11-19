@@ -651,7 +651,10 @@ def stop_audio_process():
         pass
     import platform
     if platform.system() == "Windows":
-        subprocess.run("taskkill /F /IM ffplay.exe /T 2>NUL || exit /b 0", shell=True)
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", "ffplay.exe", "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+        except Exception:
+            pass
     elif platform.system() == "Darwin":
         subprocess.run("pkill -9 ffplay 2>/dev/null || killall -9 ffplay 2>/dev/null || true", shell=True)
         subprocess.run("pkill -9 say 2>/dev/null || killall -9 say 2>/dev/null || true", shell=True)
@@ -918,7 +921,7 @@ def voice_upload():
                         with wave.open(wav_path, "rb") as w:
                             frames = w.readframes(w.getnframes())
                             audio_array = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-                except Exception as ff_e:
+                except (FileNotFoundError, Exception) as ff_e:
                     print(f"[Server] ffmpeg conversion notice: {ff_e}")
 
             # Fallback to soundfile if available
@@ -937,7 +940,7 @@ def voice_upload():
                     pass
 
         if audio_array is None:
-            return jsonify({"error": "Audio could not be decoded. Please try recording again."}), 400
+            return jsonify({"error": "Audio could not be decoded. Please speak into your microphone and try again."}), 400
 
         # Automatic digital AGC / normalization to boost quiet voice notes
         if audio_array is not None and len(audio_array) > 0:
@@ -958,21 +961,40 @@ def voice_upload():
         
         # 1. Fast Path: Groq LPU Whisper STT (~150-250ms latency, whisper-large-v3-turbo)
         text = transcribe_groq_whisper(audio_array, sample_rate=16000)
-        
-        # 2. Resilient Offline Fallback: Faster-Whisper on CPU with vad_filter
+
+        # 2. Free Cloud Fallback: Google Speech Recognition (~300ms)
         if not text:
-            model = get_whisper_model()
-            if model:
-                print("[Server] Using Faster-Whisper offline fallback for uploaded voice...")
-                segments, info = model.transcribe(
-                    audio_array, 
-                    beam_size=1, 
-                    best_of=1, 
-                    condition_on_previous_text=False, 
-                    vad_filter=True, 
-                    language="en"
-                )
-                text = " ".join([segment.text for segment in segments]).strip()
+            try:
+                import speech_recognition as sr
+                int16_bytes = (np.clip(audio_array, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+                audio_data = sr.AudioData(int16_bytes, 16000, 2)
+                r = sr.Recognizer()
+                try:
+                    text = r.recognize_google(audio_data, language="en-US").strip()
+                except Exception:
+                    text = r.recognize_google(audio_data, language="en-NG").strip()
+                if text:
+                    print(f"[Server] Google STT transcribed voice upload: '{text}'")
+            except Exception as sr_err:
+                print(f"[Server] Google STT fallback notice: {sr_err}")
+        
+        # 3. Resilient Offline Fallback: Faster-Whisper on CPU with vad_filter
+        if not text:
+            try:
+                model = get_whisper_model()
+                if model:
+                    print("[Server] Using Faster-Whisper offline fallback for uploaded voice...")
+                    segments, info = model.transcribe(
+                        audio_array, 
+                        beam_size=1, 
+                        best_of=1, 
+                        condition_on_previous_text=False, 
+                        vad_filter=True, 
+                        language="en"
+                    )
+                    text = " ".join([segment.text for segment in segments]).strip()
+            except Exception as fw_err:
+                print(f"[Server] Faster-Whisper fallback notice: {fw_err}")
                 
         print(f"[Server] Uploaded voice transcribed: '{text}'")
         
@@ -991,7 +1013,7 @@ def voice_upload():
         if os.path.exists(wav_path) and wav_path != temp_path:
             os.remove(wav_path)
         print(f"[Server] Voice upload error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Could not transcribe audio. Please try again."}), 500
 
 import time
 
@@ -1477,6 +1499,25 @@ def auth_send_otp():
         if not email or "@" not in email:
             return jsonify({"success": False, "error": "Invalid email address."}), 400
 
+        # 1. Forward to Proxy Server First (remote cloud serverless dispatch)
+        proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app").rstrip("/")
+        try:
+            import urllib.request, json
+            p_req = urllib.request.Request(
+                f"{proxy_url}/api/v1/auth/send_otp",
+                data=json.dumps({"email": email, "purpose": purpose}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(p_req, timeout=12) as p_resp:
+                p_data = json.loads(p_resp.read().decode("utf-8"))
+                if p_data.get("success"):
+                    print(f"[Tilux OTP Server] Dispatched OTP to {email} via tilux-proxy successfully.")
+                    return jsonify(p_data), 200
+        except Exception as proxy_err:
+            print(f"[OTP Proxy Notice] {proxy_err}, falling back to local dispatch")
+
+        # 2. Local Fallback: Save to Firebase & dispatch locally
         import random, time, json, urllib.request
         otp = str(random.randint(100000, 999999))
         email_key = _sanitize_otp_email_key(email)
@@ -1522,7 +1563,7 @@ def auth_send_otp():
             except Exception as mail_e:
                 print(f"[OTP Mailer] SMTP notice: {mail_e}")
 
-        print(f"[Tilux OTP Server] Generated code for {email} ({purpose}): [{otp}]")
+        print(f"[Tilux OTP Server] Generated code locally for {email} ({purpose}): [{otp}]")
         return jsonify({"success": True, "otp": otp, "email": email})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1536,6 +1577,24 @@ def auth_verify_otp():
         if not email or not entered_code:
             return jsonify({"valid": False, "message": "Email and verification code are required."}), 400
 
+        # 1. Forward to Proxy Server First
+        proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app").rstrip("/")
+        try:
+            import urllib.request, json
+            p_req = urllib.request.Request(
+                f"{proxy_url}/api/v1/auth/verify_otp",
+                data=json.dumps({"email": email, "code": entered_code}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(p_req, timeout=10) as p_resp:
+                p_data = json.loads(p_resp.read().decode("utf-8"))
+                if p_data.get("valid") is not None:
+                    return jsonify(p_data), 200
+        except Exception as proxy_err:
+            print(f"[OTP Proxy Verify Notice] {proxy_err}")
+
+        # 2. Local Fallback Check
         import time, json, urllib.request
         email_key = _sanitize_otp_email_key(email)
         url = f"https://tiluxasm-default-rtdb.firebaseio.com/hosts/otp_{email_key}/settings.json"
@@ -1665,6 +1724,28 @@ def verify_payment():
 
         if verified:
             summary = usage_tracker.add_funds(amount_usd, gateway, reference)
+            # Ensure payment delivery receipt email is dispatched via proxy
+            try:
+                receipt_email = data.get("email") or getattr(usage_tracker, "active_user_id", "") or ""
+                if receipt_email and "@" in receipt_email:
+                    proxy_url = os.getenv("TILUX_PROXY_URL", "https://tilux-proxy.vercel.app").rstrip("/")
+                    r_req = urllib.request.Request(
+                        f"{proxy_url}/api/v1/payment/send_receipt",
+                        data=json.dumps({
+                            "email": receipt_email,
+                            "status": "successful",
+                            "amount_usd": amount_usd,
+                            "currency": "USD",
+                            "reference": reference,
+                            "gateway": gateway
+                        }).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    urllib.request.urlopen(r_req, timeout=5)
+            except Exception as r_err:
+                print(f"[Payment Receipt Notice] {r_err}")
+
             return jsonify({"status": "success", "message": f"Payment verified. ${amount_usd:.2f} USD added.", "billing": summary})
         else:
             return jsonify({"status": "pending", "message": "Transaction unverified or pending."}), 400

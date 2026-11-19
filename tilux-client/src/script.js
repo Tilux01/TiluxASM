@@ -183,7 +183,8 @@ async function executePayment() {
                         body: JSON.stringify({
                             gateway: selectedGatewayName,
                             reference: verifyRef,
-                            amount_usd: selectedTopupAmount
+                            amount_usd: selectedTopupAmount,
+                            email: email
                         })
                     });
                     const vData = await vRes.json();
@@ -875,6 +876,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Setup Visualizer
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioContext.state === 'suspended') {
+                try { await audioContext.resume(); } catch (_) {}
+            }
             const source = audioContext.createMediaStreamSource(audioStream);
             const analyser = audioContext.createAnalyser();
             analyser.fftSize = 256;
@@ -908,14 +912,18 @@ document.addEventListener('DOMContentLoaded', () => {
             // Setup Direct PCM capture for zero-dependency WAV encoding
             const pcmProcessor = audioContext.createScriptProcessor ? audioContext.createScriptProcessor(4096, 1, 1) : null;
             const pcmBuffers = [];
+            let muteGain = null;
             if (pcmProcessor) {
                 pcmProcessor.onaudioprocess = (e) => {
                     if (!isRecording) return;
                     const input = e.inputBuffer.getChannelData(0);
                     pcmBuffers.push(new Float32Array(input));
                 };
+                muteGain = audioContext.createGain();
+                muteGain.gain.value = 0;
                 source.connect(pcmProcessor);
-                pcmProcessor.connect(audioContext.destination);
+                pcmProcessor.connect(muteGain);
+                muteGain.connect(audioContext.destination);
             }
 
             // Setup Media Recorder (fallback)
@@ -935,6 +943,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (pcmProcessor) {
                     try { pcmProcessor.disconnect(); } catch (_) {}
+                }
+                if (muteGain) {
+                    try { muteGain.disconnect(); } catch (_) {}
                 }
                 const sampleRate = audioContext ? audioContext.sampleRate : 16000;
                 if (audioStream) audioStream.getTracks().forEach(track => track.stop());

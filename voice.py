@@ -191,11 +191,15 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
                     print(f"[Voice] Failed to download {voice}: {e}")
                     voice = resolve_piper_path("piper-model/en_US-lessac-medium.onnx")
                 
+            sup_piper = {}
+            if platform.system() == "Windows":
+                sup_piper["creationflags"] = 0x08000000
             piper_proc = subprocess.Popen(
                 piper_cmd + ["--model", voice, "--output_raw"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
+                **sup_piper
             )
             out, _ = piper_proc.communicate(input=text.encode('utf-8'))
             
@@ -380,11 +384,15 @@ def speak(text: str):
                 async def _stream_edge():
                     global _active_audio_proc
                     comm = edge_tts.Communicate(clean_text, tts_voice, rate=tts_speed)
+                    sup_ff = {}
+                    if sys.platform == "win32":
+                        sup_ff["creationflags"] = 0x08000000
                     p2 = subprocess.Popen(
                         ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-i", "-"],
                         stdin=subprocess.PIPE,
                         stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL
+                        stderr=subprocess.DEVNULL,
+                        **sup_ff
                     )
                     _active_audio_proc = p2
                     async for chunk in comm.stream():
@@ -570,7 +578,10 @@ def terminate_active_audio():
 
     import platform, subprocess
     if platform.system() == "Windows":
-        subprocess.run("taskkill /F /IM ffplay.exe /T 2>NUL || exit /b 0", shell=True)
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", "ffplay.exe", "/T"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+        except Exception:
+            pass
     elif platform.system() == "Darwin":
         subprocess.run("pkill -9 ffplay 2>/dev/null || killall -9 ffplay 2>/dev/null || true", shell=True)
         subprocess.run("pkill -9 say 2>/dev/null || killall -9 say 2>/dev/null || true", shell=True)

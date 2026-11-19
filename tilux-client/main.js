@@ -8,6 +8,13 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 // Enforce dark mode for native window chrome (enables dark titlebar on macOS automatically without manual styling)
 nativeTheme.themeSource = 'dark';
 
+// Enforce single-instance lock: prevents multiple instances from colliding over Chromium cache, quota DB, and backend ports
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    app.quit();
+    process.exit(0);
+}
+
 // Completely disable Electron default application menu across all windows
 Menu.setApplicationMenu(null);
 const path = require('path');
@@ -20,6 +27,14 @@ let mainWindow = null;
 let tray = null;
 let isAppQuitting = false;
 let keepBackendOnQuit = false;
+
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+    if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    }
+});
 
 function copyDirectory(src, dest) {
     if (!fs.existsSync(dest)) {
@@ -70,6 +85,10 @@ function syncBackendCode(src, dest) {
             }
 
             if (entry.isDirectory()) {
+                // If it's the standalone Python runtime, do not re-copy once already extracted
+                if (entry.name === 'runtime' && fs.existsSync(destPath)) {
+                    continue;
+                }
                 syncBackendCode(srcPath, destPath);
             } else {
                 // Always overwrite code files (.py, .pyd, .so, etc.) so updates immediately take effect!
@@ -89,7 +108,12 @@ function syncBackendCode(src, dest) {
                         } catch (_) {}
                     }
                 } catch (err) {
-                    console.error(`[Sync] Failed to sync ${entry.name}:`, err);
+                    if (err.code === 'EBUSY') {
+                        // File is currently locked by active backend process; perfectly normal when reusing running process
+                        console.log(`[Sync] ${entry.name} currently in-use by running backend, skipped.`);
+                    } else {
+                        console.error(`[Sync] Failed to sync ${entry.name}:`, err);
+                    }
                 }
             }
         }
