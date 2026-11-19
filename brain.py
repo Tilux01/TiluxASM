@@ -725,7 +725,6 @@ class Brain:
                 import docx
                 from PIL import Image as _PILImg
                 from usage_tracker import usage_tracker
-                from reflex_router import reflex_route
                 from memory import load_memory
             except Exception:
                 pass
@@ -963,27 +962,6 @@ class Brain:
             self._repair_history()
             import os
 
-            # --- 0. FAST-PATH REFLEX ROUTING (DESKTOP CHAT & VOICE) ---
-            # Check Instant Reflex Fast-Path (< 15ms, zero LLM tokens, instant deterministic OS action)
-            # Only run reflex if there are no attachments
-            if not attachments:
-                try:
-                    from reflex_router import reflex_route
-                    reflex_res = reflex_route(text)
-                except Exception as rf_err:
-                    print(f"[Brain] Reflex router warning: {rf_err}")
-                    reflex_res = None
-
-                if reflex_res:
-                    if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
-                        return {"reply": reflex_res.get("reply", ""), "aborted": True, "steps": ["Dismissed by reflex"], "close_voice_assistant": bool(is_voice)}
-                    rep = reflex_res.get("reply", "")
-                    return {
-                        "reply": rep,
-                        "steps": [f"Reflex action: {reflex_res.get('action')}"],
-                        "events": [],
-                        "sub_text": reflex_res.get("sub_text", "")
-                    }
 
             # --- VOICE DIRECT TALK ROUTING (QUICK WIT & CHATBOX PERMISSION) ---
             if is_voice:

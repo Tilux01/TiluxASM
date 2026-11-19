@@ -270,7 +270,6 @@ def _on_wake_word(initial_phrase=""):
     def background_task(my_proc, queued_initial=""):
         global WIDGET_STATE, is_voice_assistant_active
         import time, re
-        from reflex_router import reflex_route
         brain.abort_flag = False
         try:
             # 1. If no initial phrase was detected, speak quick wake acknowledgment
@@ -353,42 +352,7 @@ def _on_wake_word(initial_phrase=""):
                 WIDGET_STATE["is_speaking"] = False
                 brain.abort_flag = False
 
-                # 2. Instant Reflex Fast-Path Check (< 50ms, zero tokens)
-                try:
-                    reflex_res = reflex_route(text)
-                except Exception as e:
-                    print(f"[Server] ⚠️ Error during reflex_route check: {e}")
-                    reflex_res = None
-                if reflex_res:
-                    print(f"[Server] ⚡ Reflex router handled: '{text}' -> {reflex_res.get('action')}")
-                    if reflex_res.get("action") == "dismiss" or reflex_res.get("aborted"):
-                        reply_text = (reflex_res.get("reply", "") or "").replace("—", "-").replace("–", "-")
-                        if reply_text and is_voice_assistant_active and not brain.abort_flag:
-                            WIDGET_STATE["main_text"] = "Speaking..."
-                            WIDGET_STATE["sub_text"] = reply_text
-                            WIDGET_STATE["reply_text"] = reply_text
-                            WIDGET_STATE["is_speaking"] = True
-                            WIDGET_STATE["speak_id"] = time.time()
-                            speak(reply_text)
-                            WIDGET_STATE["is_speaking"] = False
-                            WIDGET_STATE["sub_text"] = ""
-                        break
-                    reply_text = (reflex_res.get("reply", "") or "").replace("—", "-").replace("–", "-")
-                    clean_sub = (reflex_res.get("sub_text", "") or reply_text).replace("—", "-").replace("–", "-")
-                    if reply_text and is_voice_assistant_active and not brain.abort_flag:
-                        WIDGET_STATE["main_text"] = "Speaking..."
-                        WIDGET_STATE["sub_text"] = clean_sub
-                        WIDGET_STATE["reply_text"] = reply_text
-                        WIDGET_STATE["is_speaking"] = True
-                        WIDGET_STATE["speak_id"] = time.time()
-                        speak(reply_text)
-                    WIDGET_STATE["is_speaking"] = False
-                    WIDGET_STATE["sub_text"] = ""
-                    WIDGET_STATE["main_text"] = "Listening..."
-                    time.sleep(0.25)
-                    continue
-                
-                # 3. AI Execution (Thinking is completely silent; only final response speaks)
+                # 2. AI Execution (Thinking is completely silent; only final response speaks)
                 reply_data = brain.process_input(text, [], is_voice=True)
                 
                 if brain.abort_flag or reply_data.get("aborted") or not is_voice_assistant_active:
