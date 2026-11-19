@@ -1796,17 +1796,6 @@ if __name__ == "__main__":
     settings = load_settings()
     cloud_bridge.sync_settings(HOST_ID, settings)
     
-    def preload_models():
-        import time
-        time.sleep(2)
-        try:
-            from voice import get_whisper_model
-            get_whisper_model()
-        except Exception as e:
-            pass
-            
-    import threading
-    threading.Thread(target=preload_models, daemon=True).start()
     
     # Ensure port 8932 is free or wait gracefully during fast restarts
     import socket, time

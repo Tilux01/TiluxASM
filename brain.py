@@ -1314,84 +1314,84 @@ class Brain:
                     try:
                         messages_for_api = self._sanitize_messages_for_api(pruned_history)
                         tools_to_pass = TOOLS
+                        create_kwargs = {
+                            "model": active_model,
+                            "messages": messages_for_api,
+                            "tools": tools_to_pass,
+                            "stream": True
+                        }
                         if is_voice:
-                            stream_res = active_client.chat.completions.create(
-                                model=active_model,
-                                messages=messages_for_api,
-                                tools=tools_to_pass,
-                                max_tokens=180,
-                                stream=True
-                            )
-                            collected_content = ""
-                            collected_reasoning = ""
-                            tool_calls_dict = {}
-                            sentence_buf = ""
-                            import re as _re
-                            for chunk in stream_res:
-                                if self.abort_flag:
-                                    break
-                                if not chunk.choices:
-                                    continue
-                                delta = chunk.choices[0].delta
-                                if not delta:
-                                    continue
+                            create_kwargs["max_tokens"] = 180
 
-                                # Live DeepSeek reasoning token capture
-                                r_chunk = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-                                if r_chunk:
-                                    collected_reasoning += r_chunk
-                                    r_lines = [ln.strip() for ln in collected_reasoning.strip().split("\n") if ln.strip()]
-                                    if r_lines:
-                                        last_r = r_lines[-1]
-                                        if len(last_r) > 3:
-                                            raw_thought = last_r[-70:].strip()
-                                            clean_thought = clean_ai_thought(raw_thought, clean_q)
-                                            if clean_thought:
-                                                self.current_thought = clean_thought
-                                                self.current_status = f"Thinking: {self.current_thought}"
-                                            else:
-                                                self.current_thought = ""
-                                                self.current_status = "Thinking..."
+                        stream_res = active_client.chat.completions.create(**create_kwargs)
+                        collected_content = ""
+                        collected_reasoning = ""
+                        tool_calls_dict = {}
+                        sentence_buf = ""
+                        import re as _re
+                        for chunk in stream_res:
+                            if self.abort_flag:
+                                break
+                            if not chunk.choices:
+                                continue
+                            delta = chunk.choices[0].delta
+                            if not delta:
+                                continue
+
+                            # Live DeepSeek reasoning token capture
+                            r_chunk = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+                            if r_chunk:
+                                collected_reasoning += r_chunk
+                                r_lines = [ln.strip() for ln in collected_reasoning.strip().split("\n") if ln.strip()]
+                                if r_lines:
+                                    last_r = r_lines[-1]
+                                    if len(last_r) > 3:
+                                        raw_thought = last_r[-70:].strip()
+                                        clean_thought = clean_ai_thought(raw_thought, clean_q)
+                                        if clean_thought:
+                                            self.current_thought = clean_thought
+                                            self.current_status = f"Thinking: {self.current_thought}"
+                                        else:
+                                            self.current_thought = ""
+                                            self.current_status = "Thinking..."
+                                        if think_event and isinstance(think_event, dict):
+                                            think_event["content"] = self.current_thought or "Thinking..."
+                                        self.notify_event_update()
+
+                            if delta.tool_calls:
+                                for tc in delta.tool_calls:
+                                    idx = tc.index
+                                    if idx not in tool_calls_dict:
+                                        tool_calls_dict[idx] = {"id": tc.id or "", "name": "", "arguments": ""}
+                                    if tc.id:
+                                        tool_calls_dict[idx]["id"] = tc.id
+                                    if tc.function:
+                                        if tc.function.name:
+                                            tool_calls_dict[idx]["name"] += tc.function.name
+                                            fn_n = tool_calls_dict[idx]["name"]
+                                            self.current_status = "Planning action..." if is_voice else f"Planning: {fn_n}"
+                                            if think_event and isinstance(think_event, dict):
+                                                think_event["content"] = f"Planning action: {fn_n}..."
                                             self.notify_event_update()
+                                        if tc.function.arguments:
+                                            tool_calls_dict[idx]["arguments"] += tc.function.arguments
+                            if delta.content:
+                                collected_content += delta.content
 
-                                if delta.tool_calls:
-                                    for tc in delta.tool_calls:
-                                        idx = tc.index
-                                        if idx not in tool_calls_dict:
-                                            tool_calls_dict[idx] = {"id": tc.id or "", "name": "", "arguments": ""}
-                                        if tc.id:
-                                            tool_calls_dict[idx]["id"] = tc.id
-                                        if tc.function:
-                                            if tc.function.name:
-                                                tool_calls_dict[idx]["name"] += tc.function.name
-                                                fn_n = tool_calls_dict[idx]["name"]
-                                                self.current_status = "Planning action..." if is_voice else f"Planning: {fn_n}"
-                                                self.notify_event_update()
-                                            if tc.function.arguments:
-                                                tool_calls_dict[idx]["arguments"] += tc.function.arguments
-                                if delta.content:
-                                    collected_content += delta.content
+                        tc_objs = []
+                        for tc_data in sorted(tool_calls_dict.values(), key=lambda x: x.get("id", "")):
+                            tc_objs.append(_SerializableToolCall(
+                                id=tc_data["id"] or f"call_{len(tc_objs)}",
+                                name=tc_data["name"],
+                                arguments=tc_data["arguments"]
+                            ))
 
-                            tc_objs = []
-                            for tc_data in sorted(tool_calls_dict.values(), key=lambda x: x.get("id", "")):
-                                tc_objs.append(_SerializableToolCall(
-                                    id=tc_data["id"] or f"call_{len(tc_objs)}",
-                                    name=tc_data["name"],
-                                    arguments=tc_data["arguments"]
-                                ))
-
-                            message = _SerializableMessage(
-                                role="assistant",
-                                content=collected_content,
-                                tool_calls=tc_objs if tc_objs else None
-                            )
-                            response = _SerializableResponse(message)
-                        else:
-                            response = active_client.chat.completions.create(
-                                model=active_model,
-                                messages=messages_for_api,
-                                tools=tools_to_pass
-                            )
+                        message = _SerializableMessage(
+                            role="assistant",
+                            content=collected_content,
+                            tool_calls=tc_objs if tc_objs else None
+                        )
+                        response = _SerializableResponse(message)
                     except Exception as primary_err:
                         raise primary_err
                 except Exception as model_err:

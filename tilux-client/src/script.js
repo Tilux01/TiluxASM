@@ -535,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const innerContainer = document.createElement('div');
         innerContainer.style.paddingRight = '24px';
-        innerContainer.innerHTML = `<div id="events-container-${loadingId}" class="events-container" style="display: none;"></div><div id="text-response-${loadingId}"></div><div id="worked-for-${loadingId}" class="worked-for-container" style="display: none;"></div>`;
+        innerContainer.innerHTML = `<div id="events-container-${loadingId}" class="events-container"><div class="ai-event" id="event-${loadingId}-init"><span class="event-running"><i class="fa-solid fa-circle-notch fa-spin" style="color: #8b5cf6;"></i> Thinking...</span></div></div><div id="text-response-${loadingId}"></div><div id="worked-for-${loadingId}" class="worked-for-container" style="display: none;"></div>`;
         contentDiv.appendChild(innerContainer);
 
         const copyBtn = document.createElement('button');
@@ -559,6 +559,9 @@ document.addEventListener('DOMContentLoaded', () => {
             updateEvents: function(events) {
                 const container = document.getElementById(`events-container-${loadingId}`);
                 if (!container || !events || events.length === 0) return;
+                
+                const initEl = document.getElementById(`event-${loadingId}-init`);
+                if (initEl) initEl.remove();
                 
                 container.style.display = '';
                 let didUpdate = false;
@@ -734,9 +737,9 @@ document.addEventListener('DOMContentLoaded', () => {
             sendIcon.style.color = '#ef4444'; // Red color for stop
         }
 
-        // Auto-kill previous audio
+        // Auto-kill previous audio (fire-and-forget)
         try {
-            await fetch('http://127.0.0.1:8932/api/kill_audio', { method: 'POST' });
+            fetch('http://127.0.0.1:8932/api/kill_audio', { method: 'POST' }).catch(() => {});
         } catch(e) {}
 
         transitionToChat();

@@ -144,14 +144,14 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
                 settings = json.load(f)
         else:
             settings = {}
-        tts_engine = settings.get("tts_engine", "piper")
+        default_engine = "edge" if ("Neural" in voice or not voice.endswith(".onnx")) else "piper"
+        tts_engine = settings.get("tts_engine", default_engine)
     except:
-        tts_engine = "piper"
+        tts_engine = "edge" if ("Neural" in voice or not voice.endswith(".onnx")) else "piper"
         
-    if "Neural" in voice or "piper-model" not in voice:
-        voice = "piper-model/en_US-lessac-medium.onnx"
-        
-    if tts_engine == "edge":
+    if tts_engine == "edge" or "Neural" in voice or not voice.endswith(".onnx"):
+        if not voice or "piper-model" in voice or voice.endswith(".onnx"):
+            voice = "en-US-AriaNeural"
         async def _gen():
             comm = edge_tts.Communicate(text, voice, rate=speed)
             audio_data = b""
@@ -161,35 +161,40 @@ def _generate_audio_sync(text: str, voice: str, speed: str) -> bytes:
             return audio_data
         try:
             return asyncio.run(_gen())
-        except Exception:
+        except Exception as e:
+            print(f"[Voice] Edge TTS generation notice: {e}")
             return b""
     else:
         # Piper Offline Mode
         try:
             import platform, subprocess, os, sys
             piper_cmd = [sys.executable, "-m", "piper"]
+            if not voice or "Neural" in voice or not voice.endswith(".onnx"):
+                voice = "piper-model/en_US-lessac-medium.onnx"
             voice = resolve_piper_path(voice)
             
-            if not os.path.exists(voice):
-                import urllib.request
-                print(f"[Voice] Downloading requested voice model: {voice}...")
-                try:
-                    speaker = voice.split("-")[1]
-                    quality = voice.split("-")[2].replace(".onnx", "")
-                    base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
-                    target_dir = os.environ.get("TILUX_USER_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
-                    if not os.access(target_dir, os.W_OK):
-                        target_dir = os.path.expanduser("~/.cache/tilux")
-                    save_dir = os.path.join(target_dir, "piper-model")
-                    os.makedirs(save_dir, exist_ok=True)
-                    dest_file = os.path.join(save_dir, os.path.basename(voice))
-                    urllib.request.urlretrieve(base_url, dest_file)
-                    urllib.request.urlretrieve(base_url + ".json", dest_file + ".json")
-                    voice = dest_file
-                    print(f"[Voice] Successfully downloaded {speaker} voice to {voice}!")
-                except Exception as e:
-                    print(f"[Voice] Failed to download {voice}: {e}")
-                    voice = resolve_piper_path("piper-model/en_US-lessac-medium.onnx")
+            if not os.path.exists(voice) and voice.endswith(".onnx"):
+                parts = os.path.basename(voice).replace(".onnx", "").split("-")
+                if len(parts) >= 3 and parts[0].startswith("en_"):
+                    import urllib.request
+                    print(f"[Voice] Downloading requested voice model: {voice}...")
+                    try:
+                        speaker = parts[1]
+                        quality = parts[2]
+                        base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
+                        target_dir = os.environ.get("TILUX_USER_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+                        if not os.access(target_dir, os.W_OK):
+                            target_dir = os.path.expanduser("~/.cache/tilux")
+                        save_dir = os.path.join(target_dir, "piper-model")
+                        os.makedirs(save_dir, exist_ok=True)
+                        dest_file = os.path.join(save_dir, os.path.basename(voice))
+                        urllib.request.urlretrieve(base_url, dest_file)
+                        urllib.request.urlretrieve(base_url + ".json", dest_file + ".json")
+                        voice = dest_file
+                        print(f"[Voice] Successfully downloaded {speaker} voice to {voice}!")
+                    except Exception as e:
+                        print(f"[Voice] Failed to download {voice}: {e}")
+                        voice = resolve_piper_path("piper-model/en_US-lessac-medium.onnx")
                 
             sup_piper = {}
             if platform.system() == "Windows":
@@ -374,11 +379,12 @@ def speak(text: str):
         pass
         
     try:
-        tts_engine = settings.get("tts_engine", "piper")
-        tts_voice = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
+        tts_voice = settings.get("tts_voice", "en-US-AriaNeural")
+        default_engine = "edge" if ("Neural" in tts_voice or not tts_voice.endswith(".onnx")) else "piper"
+        tts_engine = settings.get("tts_engine", default_engine)
         tts_speed = settings.get("tts_speed", "+20%")
         
-        if tts_engine == "edge":
+        if tts_engine == "edge" or "Neural" in tts_voice or not tts_voice.endswith(".onnx"):
             try:
                 import edge_tts, asyncio
                 async def _stream_edge():
@@ -610,26 +616,33 @@ def get_piper_voice(model_path: str = None):
         settings = get_voice_settings()
         model_path = settings.get("tts_voice", "piper-model/en_US-lessac-medium.onnx")
         
+    if not model_path or "Neural" in model_path or not model_path.endswith(".onnx"):
+        model_path = "piper-model/en_US-lessac-medium.onnx"
+
     resolved_path = resolve_piper_path(model_path)
-    if not os.path.exists(resolved_path):
-        import urllib.request
-        print(f"[Voice] Downloading requested voice model: {model_path}...")
-        try:
-            speaker = model_path.split("-")[1]
-            quality = model_path.split("-")[2].replace(".onnx", "")
-            base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
-            target_dir = os.environ.get("TILUX_USER_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
-            if not os.access(target_dir, os.W_OK):
-                target_dir = os.path.expanduser("~/.cache/tilux")
-            save_dir = os.path.join(target_dir, "piper-model")
-            os.makedirs(save_dir, exist_ok=True)
-            dest_file = os.path.join(save_dir, os.path.basename(model_path))
-            urllib.request.urlretrieve(base_url, dest_file)
-            urllib.request.urlretrieve(base_url + ".json", dest_file + ".json")
-            resolved_path = dest_file
-            print(f"[Voice] Successfully downloaded {speaker} voice to {resolved_path}!")
-        except Exception as e:
-            print(f"[Voice] Failed to download {model_path}: {e}")
+    if not os.path.exists(resolved_path) and model_path.endswith(".onnx"):
+        parts = os.path.basename(model_path).replace(".onnx", "").split("-")
+        if len(parts) >= 3 and parts[0].startswith("en_"):
+            import urllib.request
+            print(f"[Voice] Downloading requested voice model: {model_path}...")
+            try:
+                speaker = parts[1]
+                quality = parts[2]
+                base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/{speaker}/{quality}/en_US-{speaker}-{quality}.onnx"
+                target_dir = os.environ.get("TILUX_USER_DATA_DIR") or os.path.dirname(os.path.abspath(__file__))
+                if not os.access(target_dir, os.W_OK):
+                    target_dir = os.path.expanduser("~/.cache/tilux")
+                save_dir = os.path.join(target_dir, "piper-model")
+                os.makedirs(save_dir, exist_ok=True)
+                dest_file = os.path.join(save_dir, os.path.basename(model_path))
+                urllib.request.urlretrieve(base_url, dest_file)
+                urllib.request.urlretrieve(base_url + ".json", dest_file + ".json")
+                resolved_path = dest_file
+                print(f"[Voice] Successfully downloaded {speaker} voice to {resolved_path}!")
+            except Exception as e:
+                print(f"[Voice] Failed to download {model_path}: {e}")
+                resolved_path = resolve_piper_path("piper-model/en_US-lessac-medium.onnx")
+        else:
             resolved_path = resolve_piper_path("piper-model/en_US-lessac-medium.onnx")
 
     if _cached_piper_voice is None or _cached_piper_model_path != resolved_path:
