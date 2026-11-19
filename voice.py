@@ -421,9 +421,15 @@ def speak(text: str):
                         pass
                     mark_tts_finished()
                 asyncio.run(_stream_edge())
-            except Exception:
+            except Exception as e:
+                print(f"[Voice] Edge TTS streaming failed: {e}. Falling back to OS speech...")
                 if 'p2' in locals() and p2.poll() is None:
-                    p2.terminate()
+                    try:
+                        p2.terminate()
+                    except Exception:
+                        pass
+                speak_os_fallback(clean_text)
+                return
         else:
             # Piper TTS Instant Sentence-Pipelined Streaming Mode
             try:
