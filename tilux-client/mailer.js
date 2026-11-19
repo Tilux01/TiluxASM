@@ -183,9 +183,16 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
               <!-- Hero Banner Matching Desktop Auth Modal -->
               <tr>
                 <td style="background: linear-gradient(145deg, #a855f7 0%, #7c3aed 40%, #3b0764 75%, #0f0728 100%); padding: 36px 30px; border-radius: 24px; margin: 8px;">
-                  <div style="font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: -0.3px; margin-bottom: 22px;">
-                    <span style="display: inline-block; background: rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 4px 8px; margin-right: 6px;">⚡</span> Tilux
-                  </div>
+                  <table border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 22px;">
+                    <tr>
+                      <td style="vertical-align: middle; padding-right: 8px;">
+                        <img src="cid:tilux_logo" width="24" height="24" style="display: block; width: 24px; height: 24px; border-radius: 5px; object-fit: contain;" alt="Tilux" />
+                      </td>
+                      <td style="vertical-align: middle; font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: -0.3px;">
+                        Tilux
+                      </td>
+                    </tr>
+                  </table>
                   <h1 style="margin: 0 0 8px 0; font-size: 26px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;">Get Started with Us</h1>
                   <p style="margin: 0 0 24px 0; font-size: 13px; color: rgba(255, 255, 255, 0.80); line-height: 1.5; max-width: 380px;">
                     Complete these easy steps to register your desktop AI account.
@@ -272,6 +279,8 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
     try {
         const transporter = await getTransporter();
         if (transporter) {
+            const iconPath = path.join(__dirname, 'src', 'icon.png');
+            const hasIcon = fs.existsSync(iconPath);
             const senderUser = process.env.EMAIL_USER || process.env.SMTP_USER || 'noreply@tilux.ai';
             const mailOptions = {
                 from: `"Tilux ASM Security" <${senderUser}>`,
@@ -283,7 +292,7 @@ async function sendOtpEmail({ to, purpose = 'signup' }) {
                     {
                         filename: 'icon.png',
                         path: iconPath,
-                        cid: 'tilux_app_icon'
+                        cid: 'tilux_logo'
                     }
                 ] : []
             };
